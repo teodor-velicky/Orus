@@ -1,0 +1,82 @@
+# Builds an UNSIGNED Orus.ipa on a GitHub macOS runner — no Mac and no paid
+# Apple Developer account needed. Sideloadly signs it with a free Apple ID.
+#
+# Run: GitHub → Actions → "iOS IPA for Sideloadly" → Run workflow.
+# Download: the run page → Artifacts → Orus-ipa.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY
+#   EXPO_PUBLIC_STRAVA_CLIENT_ID (optional)
+# EXPO_PUBLIC_* values are baked into the JS bundle at build time.
+
+name: iOS IPA for Sideloadly
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_STRAVA_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_STRAVA_CLIENT_ID }}
+      EXPO_NO_TELEMETRY: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode (SDK 57 needs Xcode 26.4+)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check secrets
+        run: |
+          if [ -z "$EXPO_PUBLIC_SUPABASE_URL" ] || [ -z "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as repository secrets"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Typecheck and tests
+        run: |
+          npx tsc --noEmit
+          bash lib/ring/__tests__/run.sh
+          bash lib/run/__tests__/run.sh
+          bash supabase/functions/_shared/__tests__/run.sh
+
+      - name: Generate native iOS project (installs CocoaPods)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Archive without code signing
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/Orus.xcworkspace \
+            -scheme Orus \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Orus.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            archive | tail -n 200
+
+      - name: Package .ipa
+        run: |
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$RUNNER_TEMP/Orus.xcarchive/Products/Applications/Orus.app" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa" && zip -qry Orus.ipa Payload
+          ls -lh Orus.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Orus-ipa
+          path: ${{ runner.temp }}/ipa/Orus.ipa
+          retention-days: 14
