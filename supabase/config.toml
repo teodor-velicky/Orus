@@ -1,0 +1,16 @@
+# Orus — Supabase CLI config.
+# Link the project once with:
+#   supabase link --project-ref <project-ref>
+project_id = "orus"
+
+[functions.analyze-meal]
+verify_jwt = true
+
+[functions.compute-system-scores]
+verify_jwt = true
+
+[functions.strava]
+verify_jwt = true
+
+[functions.analyze-run]
+verify_jwt = true
