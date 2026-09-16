@@ -71,6 +71,20 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             archive | tail -n 200
 
+      # Unsigned archives carry no entitlements, so Sideloadly would sign the app
+      # without HealthKit ("Missing com.apple.developer.healthkit entitlement").
+      # An ad-hoc signature embeds them; Sideloadly keeps them when it re-signs.
+      - name: Embed entitlements (HealthKit)
+        run: |
+          APP="$RUNNER_TEMP/Orus.xcarchive/Products/Applications/Orus.app"
+          ENT="ios/Orus/Orus.entitlements"
+          test -f "$ENT" || { echo "::error::$ENT not found after prebuild"; exit 1; }
+          plutil -p "$ENT"
+          grep -q "com.apple.developer.healthkit" "$ENT" || { echo "::error::HealthKit entitlement missing from $ENT"; exit 1; }
+          codesign --force --sign - --entitlements "$ENT" --timestamp=none "$APP"
+          echo "Embedded entitlements:"
+          codesign -d --entitlements - "$APP"
+
       - name: Package .ipa
         run: |
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
