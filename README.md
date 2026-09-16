@@ -77,6 +77,4 @@ The [setup guide](docs/SETUP.md) walks through each step in detail, including Ga
 
 ## Status
 
-Orus is built for two people, one ring model and my own habits, so expect rough edges. The ring decoder comes from public research into the Colmi protocol and hasn't been tested against a real R09 yet. The food analysis is an estimate, not medical advice.
-
-Issues and ideas are welcome.
+Orus is built for two people, one ring model and my own habits, so expect rough edges. The ring decoder comes from public research into the Colmi protocol and hasn't been tested against a real R09 yet.
