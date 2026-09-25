@@ -53,6 +53,7 @@ export const colmiDecoder: RingDecoder = {
   liveStart: (mode) => custom.liveStart(mode),
   liveKeepAlive: () => custom.liveKeepAlive(),
   liveStop: () => custom.liveStop(),
+  ping: () => [uart(makePacket(CMD.BATTERY))],
 
   decode(channel, bytes, receivedAt) {
     try {

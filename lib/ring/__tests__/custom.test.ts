@@ -2,7 +2,7 @@
 // Run: npm run test:ring
 import * as assert from 'assert'
 import {
-  custom, parseActivity, parseHeartRateLog, parseHrvLog, parseMeasurement, parseRawMotion, resetBeatStream,
+  custom, parseActivity, parseHeartRateLog, parseHrvLog, parseMeasurement, parseRawMotion, parseTemperatureHistory, resetBeatStream,
   parseSleep, parseSpo2History, requests, BIG_DATA,
 } from '../custom'
 import { makePacket, isValidPacket } from '../packet'
@@ -119,6 +119,9 @@ test('history runs one request at a time and reports completion', () => {
   assert.deepStrictEqual(sent.pop()!.slice(0, 2), [0xbc, 0x27]) // → sleep
 
   custom.decode(BIG_DATA.id, bigFrame(0x27, [0]), Date.now())
+  assert.deepStrictEqual(sent.pop()!.slice(0, 2), [0xbc, 0x25]) // → temperature
+
+  custom.decode(BIG_DATA.id, bigFrame(0x25, [0, 0x1e, ...Array(48).fill(0)]), Date.now())
   assert.strictEqual(sent.pop()![0], 0x39) // → HRV
 
   const done = custom.decode('uart', makePacket(0x39, [0xff]), Date.now())!
@@ -164,6 +167,24 @@ test('kind 0x0a streams beat-to-beat intervals, not a single HRV value', () => {
   // Noise outside 300-2000 ms is ignored
   resetBeatStream()
   assert.deepStrictEqual(parseMeasurement(beatFrame(16), 1), [])
+})
+
+test('temperature history: two readings an hour, raw/10 + 20 °C', () => {
+  // One day: [daysAgo, 0x1e] then 24 hours x (on the hour, half past)
+  const day = [0, 0x1e, ...Array(48).fill(0)]
+  day[2 + 3 * 2] = 162 // 03:00 → 36.2 °C
+  day[2 + 3 * 2 + 1] = 158 // 03:30 → 35.8 °C
+  const now = new Date(2026, 8, 26, 12, 0, 0)
+  const events = parseTemperatureHistory(new Uint8Array(bigFrame(0x25, day)), now)
+  assert.strictEqual(events.length, 2)
+  const first = events[0] as { type: string; at: number; celsius: number }
+  assert.strictEqual(first.type, 'skin_temp')
+  assert.strictEqual(Math.round(first.celsius * 10) / 10, 36.2)
+  assert.strictEqual(new Date(first.at).getHours(), 3)
+  assert.strictEqual(new Date((events[1] as { at: number }).at).getMinutes(), 30)
+
+  // Short frames (no data recorded) are ignored
+  assert.deepStrictEqual(parseTemperatureHistory(new Uint8Array(bigFrame(0x25, [0, 0x1e])), now), [])
 })
 
 test('spo2 sends zeros while measuring, then the reading', () => {

@@ -65,6 +65,13 @@ export async function initRing(): Promise<void> {
   wantConnected = true
   connect().catch(() => {})
 
+  m.onStateChange(state => {
+    if (state === 'PoweredOn' && wantConnected && getRing().status !== 'connected') {
+      reconnectAttempts = 0
+      connect().catch(() => {})
+    }
+  }, false)
+
   if (!flushTimer) flushTimer = setInterval(() => { flush().catch(e => console.warn('ring flush', e)) }, 60_000)
   AppState.addEventListener('change', s => {
     if (s === 'active' && wantConnected && getRing().status !== 'connected') connect().catch(() => {})
@@ -121,7 +128,7 @@ async function connect(): Promise<void> {
   if (!m || !saved || getRing().status === 'connecting' || getRing().status === 'connected') return
   patchRing({ status: 'connecting', error: null })
   try {
-    const d = await m.connectToDevice(saved.id, { timeout: 15_000 })
+    const d = await m.connectToDevice(saved.id, { timeout: 45_000 })
     device = await d.discoverAllServicesAndCharacteristics()
     reconnectAttempts = 0
 
@@ -139,6 +146,7 @@ async function connect(): Promise<void> {
     subs.push(m.onDeviceDisconnected(saved.id, () => onDisconnected()))
 
     patchRing({ status: 'connected' })
+    startPing()
     await send(decoder.onConnect(new Date()))
     await syncHistory()
   } catch (e) {
@@ -148,6 +156,7 @@ async function connect(): Promise<void> {
 }
 
 async function disconnect(): Promise<void> {
+  stopPing()
   stopLive()
   decoder.reset?.()
   subs.forEach(s => s.remove())
@@ -158,6 +167,7 @@ async function disconnect(): Promise<void> {
 }
 
 function onDisconnected() {
+  stopPing()
   decoder.reset?.()
   subs.forEach(s => s.remove())
   subs = []
@@ -168,8 +178,28 @@ function onDisconnected() {
   scheduleReconnect()
 }
 
+/**
+ * Rings drop an idle link to save battery, so ask for the battery level every
+ * 45 s. It doubles as a liveness check: a failed write means we're gone.
+ */
+let pingTimer: ReturnType<typeof setInterval> | null = null
+
+function startPing() {
+  if (pingTimer || !decoder.ping) return
+  pingTimer = setInterval(() => {
+    if (getRing().status !== 'connected' || !device) return
+    send(decoder.ping!()).catch(() => {})
+  }, 45_000)
+}
+
+function stopPing() {
+  if (pingTimer) clearInterval(pingTimer)
+  pingTimer = null
+}
+
 function scheduleReconnect() {
-  if (!wantConnected || AppState.currentState !== 'active' || reconnectTimer) return
+  if (!wantConnected || reconnectTimer) return
+  // Backs off to a minute; iOS lets us keep retrying in the background.
   const delay = Math.min(60_000, 2_000 * 2 ** reconnectAttempts++)
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connect().catch(() => {}) }, delay)
 }

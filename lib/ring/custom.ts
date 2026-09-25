@@ -40,6 +40,7 @@ export const CMD = {
   HRV_PREF: 0x38,
   SYNC_HRV: 0x39,
   SYNC_ACTIVITY: 0x43,
+  TEMP_PREF: 0x3a,
   MEASURE: 0x69,
   MEASURE_STOP: 0x6a,
   NOTIFY: 0x73,
@@ -49,7 +50,7 @@ export const CMD = {
 
 export const KIND = { HR: 0x01, SPO2: 0x03, STRESS: 0x04, HRV: 0x0a, TEMP: 0x0b } as const
 const ACTION = { START: 0x01, CONTINUE: 0x03 } as const
-const BIG = { SLEEP: 0x27, SPO2: 0x2a } as const
+const BIG = { TEMP: 0x25, SLEEP: 0x27, SPO2: 0x2a } as const
 const PREF_WRITE = 0x02
 
 const SLEEP_STAGE: Record<number, 'core' | 'deep' | 'rem' | 'awake'> = { 2: 'core', 3: 'deep', 4: 'rem', 5: 'awake' }
@@ -115,6 +116,8 @@ export const requests = {
     uart(makePacket(CMD.SYNC_HR, le32(ringSeconds(daysAgo === 0 ? now : midnightDaysAgo(daysAgo, now))))),
   hrv: (daysAgo: number) => uart(makePacket(CMD.SYNC_HRV, le32(daysAgo))),
   spo2: () => big([CMD.BIG_DATA, BIG.SPO2, 0x01, 0x00, 0xff, 0x00, 0xff]),
+  // Temperature history uses its own fixed request; the ring ignores the 0xff form.
+  temperature: () => big([CMD.BIG_DATA, BIG.TEMP, 0x01, 0x00, 0x3e, 0x81, 0x02]),
   sleep: () => big([CMD.BIG_DATA, BIG.SLEEP, 0x01, 0x00, 0xff, 0x00, 0xff]),
   measureStart: (kind: number) => uart(makePacket(CMD.MEASURE, [kind, ACTION.START])),
   measureContinue: (kind: number) => uart(makePacket(CMD.MEASURE, [kind, ACTION.CONTINUE])),
@@ -125,6 +128,8 @@ export const requests = {
     uart(makePacket(CMD.HR_LOG_PREF, [PREF_WRITE, minutes > 0 ? 0x01 : 0x02, Math.min(60, Math.max(0, minutes))])),
   spo2AllDay: (on: boolean) => uart(makePacket(CMD.SPO2_PREF, [PREF_WRITE, on ? 0x01 : 0x00])),
   hrvAllDay: (on: boolean) => uart(makePacket(CMD.HRV_PREF, [PREF_WRITE, on ? 0x01 : 0x00])),
+  /** All-day skin temperature. Without this the ring stores no temperature history. */
+  tempAllDay: (on: boolean) => uart(makePacket(CMD.TEMP_PREF, [0x03, PREF_WRITE, on ? 0x01 : 0x00])),
 }
 
 // ─── Pure parsers (exported for tests) ───
@@ -225,6 +230,33 @@ export function parseSpo2History(v: Uint8Array, now = new Date()): RingEvent[] {
   return events
 }
 
+/**
+ * Temperature history (big data 0x25). Per day: [daysAgo, 0x1e], then 24 hours
+ * × two readings (on the hour and on the half hour), raw/10 + 20 °C, 0 = none.
+ * Layout from the Orbit client; the ring only records it when all-day
+ * temperature is switched on.
+ */
+export function parseTemperatureHistory(v: Uint8Array, now = new Date()): RingEvent[] {
+  const length = u16(v, 2)
+  if (length < 50) return []
+  const events: RingEvent[] = []
+  let index = 6
+  let daysAgo = -1
+  while (daysAgo !== 0 && index - 6 < length && index < v.length) {
+    daysAgo = v[index++]
+    index++ // always 0x1e
+    const midnight = midnightDaysAgo(daysAgo, now).getTime()
+    for (let hour = 0; hour < 24 && index + 1 < v.length; hour++) {
+      const onHour = v[index++]
+      const halfPast = v[index++]
+      if (onHour > 0) events.push({ type: 'skin_temp', at: midnight + hour * 3600_000, celsius: onHour / 10 + 20 })
+      if (halfPast > 0) events.push({ type: 'skin_temp', at: midnight + hour * 3600_000 + 1800_000, celsius: halfPast / 10 + 20 })
+      if (index - 6 >= length) break
+    }
+  }
+  return events
+}
+
 /** Live measurement response: [0x69, kind, error, value]. */
 /**
  * Live beat stream (kind 0x0a). Captured from an R09: bytes 6-7 hold the last
@@ -306,7 +338,7 @@ export function parseRawMotion(b: Uint8Array): [number, number, number] | null {
 
 // ─── Stateful decoder ───
 
-type StepKind = 'activity' | 'hr' | 'spo2' | 'sleep' | 'hrv'
+type StepKind = 'activity' | 'hr' | 'spo2' | 'sleep' | 'hrv' | 'temp'
 interface Step { kind: StepKind; daysAgo: number; packet: Outgoing[number] }
 
 let io: RingIO | null = null
@@ -372,9 +404,10 @@ function decodeBigData(bytes: Uint8Array): RingEvent[] {
   let events: RingEvent[] = []
   if (v[1] === BIG.SLEEP) events = parseSleep(v)
   else if (v[1] === BIG.SPO2) events = parseSpo2History(v)
-  // TODO(temperature history): unknown big-data types land here — log
-  // `hex(v)` while syncing in QRing to find the temperature record type.
-  const answers = (v[1] === BIG.SLEEP && current?.kind === 'sleep') || (v[1] === BIG.SPO2 && current?.kind === 'spo2')
+  else if (v[1] === BIG.TEMP) events = parseTemperatureHistory(v)
+  const answers = (v[1] === BIG.SLEEP && current?.kind === 'sleep')
+    || (v[1] === BIG.SPO2 && current?.kind === 'spo2')
+    || (v[1] === BIG.TEMP && current?.kind === 'temp')
   return answers ? [...events, ...finishStep()] : events
 }
 
@@ -474,6 +507,7 @@ export const custom = {
       requests.hrLogInterval(HR_LOG_INTERVAL_MIN),
       requests.spo2AllDay(true),
       requests.hrvAllDay(true),
+      requests.tempAllDay(true),
     ]
   },
 
@@ -490,6 +524,7 @@ export const custom = {
       ...range.map(d => ({ kind: 'hr' as const, daysAgo: d, packet: requests.heartRate(d, now) })),
       { kind: 'spo2', daysAgo: 0, packet: requests.spo2() },
       { kind: 'sleep', daysAgo: 0, packet: requests.sleep() },
+      { kind: 'temp', daysAgo: 0, packet: requests.temperature() },
       ...range.map(d => ({ kind: 'hrv' as const, daysAgo: d, packet: requests.hrv(d) })),
     ]
     queue = steps.slice(1)

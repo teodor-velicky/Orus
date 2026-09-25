@@ -62,6 +62,8 @@ export interface RingDecoder {
   liveStart(mode?: 'vitals' | 'workout'): { channel: string; bytes: Uint8Array }[]
   liveKeepAlive(): { channel: string; bytes: Uint8Array }[]
   liveStop(): { channel: string; bytes: Uint8Array }[]
+  /** Harmless packet sent on a timer so an idle ring doesn't drop the link. */
+  ping?(): { channel: string; bytes: Uint8Array }[]
   /** Raw notification → zero or more events. Must never throw. */
   decode(channel: string, bytes: Uint8Array, receivedAt: number): RingEvent[]
 }

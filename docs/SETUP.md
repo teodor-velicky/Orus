@@ -267,6 +267,10 @@ On the R09 firmware we have, the documented heart-rate channel (`0x69` kind `0x0
 
 Sending `a1 04 04` (raw motion on) also starts the ring’s raw optical producers, and while those run the beat stream on kind `0x0a` returns only zeros: no live heart rate, no HRV. `LIVE_RAW_MOTION` in `lib/ring/custom.ts` is therefore off. Turn it on only when you are deliberately working on the accelerometer, and expect heart rate to stop while it is on.
 
+### Temperature history
+
+Big-data type `0x25`, requested with `bc 25 01 00 3e 81 02` (the `0xff` form other records use is ignored). Each day in the reply is `[daysAgo, 0x1e]` followed by 24 hours of two readings, on the hour and on the half hour, each `raw / 10 + 20` °C with 0 meaning nothing recorded. The ring only records it when all-day temperature is on, which Orus enables on connect (`0x3a 03 02 01`). Layout confirmed against the Orbit client (github.com/Daniele-rolli/Orbit) and Gadgetbridge constants.
+
 ### Things to know
 
 * **One connection at a time.** Force-quit QRing, or unpair the ring from it, before pairing in Orus.
