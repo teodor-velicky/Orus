@@ -31,7 +31,18 @@ function ble(): BleManager | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { BleManager: Manager } = require('react-native-ble-plx') as typeof import('react-native-ble-plx')
-    manager = new Manager()
+    // With a restore identifier, iOS keeps the connection across app
+    // termination and relaunches Orus in the background when the ring has
+    // something to say. Without it, everything stops when the app closes.
+    manager = new Manager({
+      restoreStateIdentifier: 'orus-ring',
+      restoreStateFunction: restored => {
+        const peripheral = restored?.connectedPeripherals?.[0]
+        if (!peripheral) return
+        wantConnected = true
+        adopt(peripheral).catch(e => console.warn('ring restore', e))
+      },
+    })
   } catch {
     manager = null // Expo Go: native module missing
   }
@@ -123,6 +134,30 @@ export async function forget(): Promise<void> {
 }
 
 // ─── Connection ───
+
+/** Wire up notifications on an already-connected device (state restoration). */
+async function adopt(d: Device): Promise<void> {
+  const m = ble()
+  if (!m) return
+  device = await d.discoverAllServicesAndCharacteristics()
+  const services = new Set((await device.services()).map(s => s.uuid.toUpperCase()))
+  subs.forEach(s => s.remove())
+  subs = []
+  for (const ch of decoder.channels) {
+    if (!services.has(ch.service.toUpperCase())) continue
+    subs.push(device.monitorCharacteristicForService(ch.service, ch.notify, (err, c) => {
+      if (err || !c?.value) return
+      const bytes = fromBase64(c.value)
+      const events = decoder.decode(ch.id, bytes, Date.now())
+      logPacket('<', ch.id, bytes, events.length ? events.map(e => e.type).join(',') : frameNote(bytes))
+      handle(events)
+    }))
+  }
+  subs.push(m.onDeviceDisconnected(d.id, () => onDisconnected()))
+  patchRing({ device: { id: d.id, name: d.name ?? getRing().device?.name ?? 'Ring' }, status: 'connected' })
+  startPing()
+  if (!flushTimer) flushTimer = setInterval(() => { flush().catch(() => {}) }, 60_000)
+}
 
 async function connect(): Promise<void> {
   const m = ble()
@@ -242,6 +277,25 @@ export function stopLive(): void {
 
 export function setSharing(on: boolean): void {
   patchRing({ sharing: on })
+}
+
+/**
+ * A single sync pass for the background task. iOS gives roughly 30 seconds,
+ * so everything is capped: connect, pull what the ring stored, upload, stop.
+ */
+export async function backgroundSync(): Promise<'synced' | 'no-ring' | 'unreachable'> {
+  const saved = await AsyncStorage.getItem(DEVICE_KEY)
+  if (!saved) return 'no-ring'
+  if (!getRing().device) patchRing({ device: JSON.parse(saved), status: 'disconnected' })
+  wantConnected = true
+  const deadline = <T>(p: Promise<T>, ms: number) =>
+    Promise.race([p, new Promise<null>(r => setTimeout(() => r(null), ms))])
+
+  if (getRing().status !== 'connected') await deadline(connect(), 20_000)
+  if (getRing().status !== 'connected') return 'unreachable'
+  await deadline(syncHistory(), 20_000)
+  await flush(true).catch(() => {})
+  return 'synced'
 }
 
 // ─── Events ───

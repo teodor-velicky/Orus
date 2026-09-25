@@ -8,6 +8,7 @@ import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/ge
 import { SessionProvider, useSession } from '../lib/session'
 import { syncHealthIfStale } from '../lib/health'
 import { initRing } from '../lib/ring/service'
+import { registerRingSync } from '../lib/ring/background'
 import { configureSharing } from '../lib/ring/share'
 // Registers the background GPS task at startup so iOS can deliver locations mid-run.
 import '../lib/run/recorder'
@@ -50,6 +51,8 @@ function Gate() {
   useEffect(() => {
     if (!session?.user.id) return
     initRing().catch(e => console.warn('ring init', e))
+    // Lets iOS wake Orus to sync the ring while the app is closed.
+    registerRingSync().catch(e => console.warn('ring background', e))
   }, [session?.user.id])
   useEffect(() => {
     configureSharing(me?.circle_id ?? null, me?.id ?? null)

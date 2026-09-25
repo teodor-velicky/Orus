@@ -67,7 +67,8 @@
           ],
           "bluetoothAlwaysPermission": "Orus connects to your smart ring to read heart rate, HRV, skin temperature, motion and sleep."
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": false

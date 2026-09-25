@@ -271,6 +271,15 @@ Sending `a1 04 04` (raw motion on) also starts the ring’s raw optical producer
 
 Big-data type `0x25`, requested with `bc 25 01 00 3e 81 02` (the `0xff` form other records use is ignored). Each day in the reply is `[daysAgo, 0x1e]` followed by 24 hours of two readings, on the hour and on the half hour, each `raw / 10 + 20` °C with 0 meaning nothing recorded. The ring only records it when all-day temperature is on, which Orus enables on connect (`0x3a 03 02 01`). Layout confirmed against the Orbit client (github.com/Daniele-rolli/Orbit) and Gadgetbridge constants.
 
+### Collecting data with the app closed
+
+iOS has no always-running background service, so Orus uses the two openings Apple allows, both in `lib/ring/background.ts` and `lib/ring/service.ts`:
+
+* **Bluetooth state restoration.** The manager is created with `restoreStateIdentifier`, so the system keeps the ring connection after Orus closes and relaunches the app in the background when the ring sends data. Force-quitting the app by swiping it away stops this until you open it again.
+* **A background task** (`expo-background-task`, identifier `orus-ring-sync`) that connects, pulls stored history, uploads and stops, capped so it fits the ~30 s iOS allows. The registered interval is a floor, not a promise: iOS decides, usually a few times a day, more often for apps you open daily.
+
+Neither is needed for completeness. The ring holds its own history, so an ordinary sync catches up on everything since the last one; background work only makes the data arrive sooner.
+
 ### Things to know
 
 * **One connection at a time.** Force-quit QRing, or unpair the ring from it, before pairing in Orus.
