@@ -65,6 +65,9 @@ export default function RingScreen() {
   ])
 
   const liveHr = isFresh(ring.hr, 15_000)
+  // Newest of the four readings: if it's old, everything on screen is a memory.
+  const newest = Math.max(ring.hr?.at ?? 0, ring.hrv?.at ?? 0, ring.skinTemp?.at ?? 0, ring.spo2?.at ?? 0)
+  const oldest = newest && Date.now() - newest > 120_000 ? newest : null
 
   return (
     <Screen bottomInset={space.xxxl}>
@@ -130,10 +133,21 @@ export default function RingScreen() {
               <Text style={type.label}>bpm{ring.hr && !liveHr ? ` · ${timeAgo(new Date(ring.hr.at).toISOString())}` : ''}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: space.xl }}>
-              <Stat value={ring.hrv ? String(Math.round(ring.hrv.value)) : '—'} unit="ms" label="HRV" size="s" />
-              <Stat value={ring.skinTemp ? ring.skinTemp.value.toFixed(1) : '—'} unit="°C" label="Skin" size="s" />
-              <Stat value={ring.spo2 ? String(Math.round(ring.spo2.value)) : '—'} unit="%" label="SpO₂" size="s" />
+              {[
+                { r: ring.hrv, v: (x: number) => String(Math.round(x)), unit: 'ms', label: 'HRV' },
+                { r: ring.skinTemp, v: (x: number) => x.toFixed(1), unit: '°C', label: 'Skin' },
+                { r: ring.spo2, v: (x: number) => String(Math.round(x)), unit: '%', label: 'SpO₂' },
+              ].map(x => (
+                <View key={x.label} style={{ alignItems: 'center', opacity: x.r && !isFresh(x.r, 120_000) ? 0.45 : 1 }}>
+                  <Stat value={x.r ? x.v(x.r.value) : '—'} unit={x.unit} label={x.label} size="s" />
+                </View>
+              ))}
             </View>
+            {oldest ? (
+              <Text style={[type.caption, { textAlign: 'center', marginTop: space.m }]}>
+                Last reading {timeAgo(new Date(oldest).toISOString())}. Keep this screen open to refresh.
+              </Text>
+            ) : null}
             <View style={{ marginTop: space.xl }}>
               <AreaChart values={ring.hrTrail} height={90} showAverage={false} />
             </View>

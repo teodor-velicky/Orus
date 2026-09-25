@@ -127,3 +127,66 @@ export async function exerciseHistory(userId: string, exerciseId: string): Promi
   }
   return [...byDay.values()]
 }
+
+// ─── Templates ───
+
+export interface TemplateItem { exercise_id: string; sets: number }
+
+export interface GymTemplate {
+  id: string
+  user_id: string
+  name: string
+  items: TemplateItem[]
+  last_used_at: string | null
+}
+
+export async function listTemplates(userId: string): Promise<GymTemplate[]> {
+  const { data, error } = await supabase.from('gym_templates').select('*')
+    .eq('user_id', userId).order('last_used_at', { ascending: false, nullsFirst: false }).order('name')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as GymTemplate[]
+}
+
+export async function getTemplate(id: string): Promise<GymTemplate | null> {
+  const { data } = await supabase.from('gym_templates').select('*').eq('id', id).maybeSingle()
+  return (data as GymTemplate | null) ?? null
+}
+
+export async function createTemplate(userId: string, name: string): Promise<GymTemplate> {
+  const { data, error } = await supabase.from('gym_templates')
+    .insert({ user_id: userId, name: name.trim() || 'New template', items: [] }).select('*').single()
+  if (error) throw new Error(error.message)
+  return data as GymTemplate
+}
+
+export async function updateTemplate(id: string, patch: Partial<Pick<GymTemplate, 'name' | 'items' | 'last_used_at'>>) {
+  const { error } = await supabase.from('gym_templates')
+    .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteTemplate(id: string) {
+  const { error } = await supabase.from('gym_templates').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Start a session laid out from a template: every exercise with its planned
+ * number of empty sets. Weight and reps stay blank; the session screen shows
+ * what you lifted last time behind them, so you know what to beat.
+ */
+export async function startFromTemplate(userId: string, template: GymTemplate): Promise<GymSession> {
+  const session = await startSession(userId, template.name)
+  const rows = template.items.flatMap((item, order) =>
+    Array.from({ length: Math.max(1, item.sets) }, (_, i) => ({
+      session_id: session.id, user_id: userId, exercise_id: item.exercise_id,
+      exercise_order: order, set_index: i,
+      weight_kg: 0, reps: 0, rpe: null, is_warmup: false, completed: false,
+    })))
+  if (rows.length) {
+    const { error } = await supabase.from('gym_sets').insert(rows)
+    if (error) throw new Error(error.message)
+  }
+  updateTemplate(template.id, { last_used_at: new Date().toISOString() }).catch(() => {})
+  return session
+}

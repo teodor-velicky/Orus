@@ -1,9 +1,9 @@
 import React from 'react'
-import { Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { color, radius, space, type } from '../../lib/theme'
 import { duration, num, shortDate } from '../../lib/format'
-import { Button, Card, Empty, Header, Label, Row, Screen, Segmented, Stat } from '../ui'
+import { Button, Card, Empty, Header, Label, Row, Screen, Segmented, Stat, tap } from '../ui'
 import { Bars, MetricBar } from '../charts'
 import { CalendarActivity, MonthCalendar } from '../run'
 import { RunningHandlers, RunningModel, RunningSection } from './RunningView'
@@ -17,8 +17,18 @@ export interface TrainItem {
   sessionId?: string
 }
 
+export interface TrainTemplate {
+  id: string
+  name: string
+  exercises: number
+  sets: number
+  /** e.g. "Chest · Shoulders · Triceps" */
+  focus: string
+}
+
 export interface TrainModel {
   isMe: boolean
+  templates: TrainTemplate[]
   active?: { id: string; name: string; startedAt: string }
   week: { sessions: number; sets: number; volumeKg: number; cardio: number; dayVolumes: number[]; dayLabels: string[] }
   muscles: { label: string; sets: number }[]
@@ -44,6 +54,9 @@ export interface TrainHandlers {
   starting?: boolean
   onStart: () => void
   onOpenSession: (id: string) => void
+  onOpenTemplate: (id: string) => void
+  onNewTemplate: () => void
+  onStartTemplate: (id: string) => void
   onOpenExercise: (id: string) => void
 }
 
@@ -125,6 +138,33 @@ function StrengthSection({ m, h, calendar }: { m: TrainModel; h: TrainHandlers; 
             </View>
           </Card>
         )
+      ) : null}
+
+      {m.isMe ? (
+        <>
+          <Label right={m.templates.length
+            ? <Pressable hitSlop={8} onPress={() => { tap(); h.onNewTemplate() }}><Text style={[type.caption, { color: color.text }]}>New</Text></Pressable>
+            : undefined}>Workouts</Label>
+          {m.templates.length === 0 ? (
+            <Empty icon="list-outline" title="Build a workout"
+              message="Save the exercises for a push day or an upper day once, then start it in a tap with last time's numbers in front of you."
+              action="New workout" onAction={h.onNewTemplate} />
+          ) : (
+            <Card style={{ paddingVertical: space.xs }}>
+              {m.templates.map((t, i) => (
+                <Row key={t.id} label={t.name} sub={`${t.exercises} exercises · ${t.sets} sets${t.focus ? ` · ${t.focus}` : ''}`}
+                  icon="list-outline" last={i === m.templates.length - 1}
+                  onPress={() => h.onOpenTemplate(t.id)}
+                  right={
+                    <Pressable hitSlop={8} onPress={() => { tap(); h.onStartTemplate(t.id) }}
+                      style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: color.text }}>
+                      <Ionicons name="play" size={14} color={color.bg} />
+                    </Pressable>
+                  } />
+              ))}
+            </Card>
+          )}
+        </>
       ) : null}
 
       {calendar}

@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { Alert } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSession } from '../lib/session'
-import { addSet, createExercise, listExercises } from '../lib/gym'
+import { addSet, createExercise, getTemplate, listExercises, updateTemplate } from '../lib/gym'
 import type { Exercise, MuscleGroup } from '../lib/types'
 import { ExercisePickerView } from '../components/views/ExercisePickerView'
 
 export default function ExercisePicker() {
-  const { sessionId, order } = useLocalSearchParams<{ sessionId: string; order: string }>()
+  // Called from a live session (add an exercise now) or from a template editor.
+  const { sessionId, order, templateId } = useLocalSearchParams<{ sessionId?: string; order?: string; templateId?: string }>()
   const router = useRouter()
   const { me } = useSession()
   const [all, setAll] = useState<Exercise[]>([])
@@ -19,8 +20,14 @@ export default function ExercisePicker() {
     if (!me || busyId) return
     setBusyId(exercise.id)
     try {
+      if (templateId) {
+        const t = await getTemplate(templateId)
+        if (t) await updateTemplate(templateId, { items: [...t.items, { exercise_id: exercise.id, sets: 3 }] })
+        router.back()
+        return
+      }
       await addSet({
-        session_id: sessionId, user_id: me.id, exercise_id: exercise.id,
+        session_id: sessionId!, user_id: me.id, exercise_id: exercise.id,
         exercise_order: Number(order) || 0, set_index: 0,
         weight_kg: 0, reps: 0, rpe: null, is_warmup: false, completed: false,
       })

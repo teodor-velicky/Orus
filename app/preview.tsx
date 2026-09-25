@@ -16,6 +16,7 @@ import { setVolume } from '../lib/gym'
 import { RunDetailView } from '../components/views/RunDetailView'
 import { RunRecordView } from '../components/views/RunRecordView'
 import { RunGoalView } from '../components/views/RunGoalView'
+import { TemplateView } from '../components/views/TemplateView'
 import type { TrainMode } from '../components/views/TrainView'
 import { summarize } from '../lib/meals'
 import { SettingsView } from '../components/views/SettingsView'
@@ -71,6 +72,22 @@ export default function Preview() {
     case 'run-workout':
     case 'run-guided':
       return <PreviewRecord phase={screen === 'run-ready' || screen === 'run-workout' ? 'ready' : screen === 'run-summary' ? 'summary' : 'running'} guided={screen === 'run-workout' || screen === 'run-guided'} />
+    case 'template':
+      return (
+        <TemplateView
+          m={{
+            name: 'Push day',
+            rows: [
+              { exerciseId: '1', name: 'Bench Press', muscle: 'Chest', sets: 4, last: '80×8, 80×7, 75×8' },
+              { exerciseId: '2', name: 'Incline Dumbbell Press', muscle: 'Chest', sets: 3, last: '30×10, 30×9' },
+              { exerciseId: '3', name: 'Overhead Press', muscle: 'Shoulders', sets: 3, last: '45×8, 45×7, 42.5×8' },
+              { exerciseId: '4', name: 'Lateral Raise', muscle: 'Shoulders', sets: 3, last: null },
+            ],
+            totalSets: 13, saving: false, starting: false,
+          }}
+          h={{ onBack: noop, onName: noop, onSets: noop, onMove: noop, onRemove: noop, onAddExercise: noop, onStart: noop, onDelete: noop }}
+        />
+      )
     case 'run-goal':
       return <PreviewGoal />
     case 'together': {
@@ -139,6 +156,10 @@ function PreviewTrain({ initial }: { initial: TrainMode }) {
       mode={mode}
       m={{
         isMe: true,
+        templates: [
+          { id: 't1', name: 'Push day', exercises: 5, sets: 18, focus: 'Chest · Shoulders · Triceps' },
+          { id: 't2', name: 'Pull day', exercises: 5, sets: 17, focus: 'Back · Biceps' },
+        ],
         week: { sessions: 2, sets: 32, volumeKg: 21000, cardio: 1, dayVolumes: [8200, 0, 11400, 0, 0, 0, 0], dayLabels: lastNDates(7).map(weekdayShort) },
         muscles: [{ label: 'Chest', sets: 14 }, { label: 'Back', sets: 16 }, { label: 'Quads', sets: 10 }],
         lifts: [{ id: '1', name: 'Bench Press', e1rm: 104, sets: 24 }, { id: '2', name: 'Back Squat', e1rm: 141, sets: 20 }],
@@ -151,6 +172,7 @@ function PreviewTrain({ initial }: { initial: TrainMode }) {
         onMode: setMode, onSelectDay: d => setDay(x => (x === d ? null : d)), onOpenActivity: noop,
         onMonth: delta => { const [y, mo] = month.split('-').map(Number); setMonth(localIso(new Date(y, mo - 1 + delta, 1)).slice(0, 7)) },
         onStart: noop, onOpenSession: noop, onOpenExercise: noop,
+        onOpenTemplate: noop, onNewTemplate: noop, onStartTemplate: noop,
       }}
     />
   )

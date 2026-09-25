@@ -4,7 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSession } from '../../lib/session'
 import {
-  activeSession, e1rm, listExercises, MUSCLE_LABELS, sessionsRange, setVolume, startSession,
+  activeSession, createTemplate, e1rm, getTemplate, GymTemplate, listExercises, listTemplates,
+  MUSCLE_LABELS, sessionsRange, setVolume, startFromTemplate, startSession,
 } from '../../lib/gym'
 import { metricsRange, pickNights, readiness, sleepRange, workoutsRange } from '../../lib/metrics'
 import { duration, lastNDates, localIso, shortDate, weekdayShort } from '../../lib/format'
@@ -30,6 +31,7 @@ export default function Train() {
   const [previews, setPreviews] = useState<Record<string, [number, number][]>>({})
   const [exercises, setExercises] = useState<Record<string, Exercise>>({})
   const [active, setActive] = useState<GymSession | null>(null)
+  const [templates, setTemplates] = useState<GymTemplate[]>([])
   const [month, setMonth] = useState(localIso().slice(0, 7))
   const [selectedDay, setSelectedDay] = useState<string | null>(localIso())
   const [refreshing, setRefreshing] = useState(false)
@@ -60,6 +62,7 @@ export default function Train() {
       listExercises(),
       isMe ? activeSession(viewing.id) : Promise.resolve(null),
     ])
+    if (isMe) listTemplates(viewing.id).then(setTemplates).catch(console.warn)
     const zs = zoneSettings(viewing, metrics, runs)
     const prepared = prepareRuns(runs, zs, viewing.sex)
     setData({ runs: prepared, sessions, workouts, metrics, goal, profile: viewing, zs })
@@ -123,6 +126,14 @@ export default function Train() {
 
     return {
       isMe,
+      templates: templates.map(t => {
+        const muscles = [...new Set(t.items.map(i => exercises[i.exercise_id]?.muscle_group).filter(Boolean))]
+        return {
+          id: t.id, name: t.name, exercises: t.items.length,
+          sets: t.items.reduce((a, i) => a + i.sets, 0),
+          focus: muscles.slice(0, 3).map(mg => MUSCLE_LABELS[mg!]).join(' · '),
+        }
+      }),
       active: active ? { id: active.id, name: active.name, startedAt: active.started_at } : undefined,
       week: {
         sessions: week.length,
@@ -138,7 +149,7 @@ export default function Train() {
         .map(([id, b]) => ({ id, name: exercises[id]?.name ?? 'Exercise', e1rm: b.e1rm, sets: b.sets })),
       items,
     }
-  }, [data, exercises, active, isMe])
+  }, [data, exercises, active, isMe, templates])
 
   // The recorder updates every GPS fix; the tab only needs a coarse summary.
   const recCoarse = rec.status !== 'idle' && rec.startedAt ? `${rec.status}:${Math.floor(rec.distanceM / 100)}` : ''
@@ -207,6 +218,27 @@ export default function Train() {
           }
         },
         onOpenSession: id => router.push(`/session/${id}`),
+        onOpenTemplate: id => router.push(`/template/${id}`),
+        onNewTemplate: async () => {
+          if (!viewing) return
+          try {
+            const t = await createTemplate(viewing.id, 'New workout')
+            router.push(`/template/${t.id}`)
+          } catch (e) {
+            Alert.alert('Could not create', (e as Error).message)
+          }
+        },
+        onStartTemplate: async id => {
+          if (!viewing) return
+          try {
+            const t = await getTemplate(id)
+            if (!t) return
+            const s = await startFromTemplate(viewing.id, t)
+            router.push(`/session/${s.id}`)
+          } catch (e) {
+            Alert.alert('Could not start', (e as Error).message)
+          }
+        },
         onOpenExercise: id => router.push({ pathname: '/exercise/[id]', params: { id, userId: viewing?.id ?? '' } }),
       }}
     />

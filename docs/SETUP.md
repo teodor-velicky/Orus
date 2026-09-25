@@ -295,6 +295,7 @@ npm run test:run
 
 ```
 app/(tabs)/        today · food · train (strength + running) · together
+app/template/      gym workout templates (push day, upper day, …)
 app/run/           record (live GPS run) · [id] (run detail) · app/run-goal.tsx
 app/               log-meal · meal/[id] · system/[id] · symptoms · sleep · heart
                    session/[id] · exercises · exercise/[id] · settings · add · onboarding · sign-in
@@ -329,6 +330,6 @@ npm run preview
 
 Open `http://localhost:8081/preview?screen=today` in a browser narrowed to phone width (DevTools device mode).
 
-* Other screens: `food`, `food-empty`, `sleep`, `heart`, `train`, `train-run`, `run`, `run-ready`, `run-live`, `run-workout`, `run-guided`, `run-summary`, `run-goal`, `together`, `meal`, `settings`, `log`, `log-analyzing`, `exercises`.
+* Other screens: `template`, `food`, `food-empty`, `sleep`, `heart`, `train`, `train-run`, `run`, `run-ready`, `run-live`, `run-workout`, `run-guided`, `run-summary`, `run-goal`, `together`, `meal`, `settings`, `log`, `log-analyzing`, `exercises`.
 * They render with sample data from `lib/demo.ts`.
 * The route only exists in development builds.

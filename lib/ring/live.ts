@@ -1,6 +1,7 @@
 // Live ring state for the UI. Tiny external store + useSyncExternalStore hook.
 
 import { useSyncExternalStore } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export type RingStatus = 'unavailable' | 'unpaired' | 'scanning' | 'connecting' | 'connected' | 'disconnected'
 
@@ -42,6 +43,43 @@ export function getRing(): RingLiveState {
 export function patchRing(patch: Partial<RingLiveState>): void {
   state = { ...state, ...patch }
   listeners.forEach(l => l())
+  if ('hr' in patch || 'hrv' in patch || 'spo2' in patch || 'skinTemp' in patch || 'battery' in patch) saveReadings()
+}
+
+// ─── Last known readings ───
+//
+// Opening the app after a while used to show blanks until the ring connected
+// and measured again. The last readings are kept on the phone and restored at
+// launch; every one carries its timestamp, so the UI can show its age.
+
+const READINGS_KEY = 'orus.ring.lastReadings'
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+function saveReadings() {
+  if (saveTimer) return
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    const { hr, hrv, spo2, skinTemp, battery } = state
+    AsyncStorage.setItem(READINGS_KEY, JSON.stringify({ hr, hrv, spo2, skinTemp, battery })).catch(() => {})
+  }, 5000)
+}
+
+/** Restore the last readings at launch. Never overwrites something fresher. */
+export async function hydrateRing(): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(READINGS_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw) as Partial<Pick<RingLiveState, 'hr' | 'hrv' | 'spo2' | 'skinTemp' | 'battery'>>
+    state = {
+      ...state,
+      hr: state.hr ?? saved.hr ?? null,
+      hrv: state.hrv ?? saved.hrv ?? null,
+      spo2: state.spo2 ?? saved.spo2 ?? null,
+      skinTemp: state.skinTemp ?? saved.skinTemp ?? null,
+      battery: state.battery ?? saved.battery ?? null,
+    }
+    listeners.forEach(l => l())
+  } catch { /* nothing stored yet */ }
 }
 
 export function pushTrail(key: 'hrTrail' | 'motionTrail', values: number[], max = 120): void {

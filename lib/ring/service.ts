@@ -15,7 +15,7 @@ import { colmiDecoder } from './colmi'
 import { frameNote } from './custom'
 import { enmo, MinuteAggregator, MinuteRow, rollupDay, rmssd } from './aggregate'
 import { fromBase64, toBase64 } from './packet'
-import { getRing, patchRing, pushTrail, logPacket } from './live'
+import { getRing, hydrateRing, patchRing, pushTrail, logPacket } from './live'
 import { broadcastVitals } from './share'
 import { isExpoGo } from '../env'
 import type { RingDecoder, RingEvent } from './types'
@@ -59,6 +59,8 @@ export async function initRing(): Promise<void> {
   // manager (that alone triggers the iOS Bluetooth permission prompt).
   const saved = await AsyncStorage.getItem(DEVICE_KEY)
   if (!saved) return patchRing({ status: isExpoGo ? 'unavailable' : 'unpaired' })
+  // Show the last readings straight away rather than blanks while we connect.
+  await hydrateRing()
   const m = ble()
   if (!m) return patchRing({ status: 'unavailable' })
   patchRing({ device: JSON.parse(saved), status: 'disconnected' })

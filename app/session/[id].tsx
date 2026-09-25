@@ -26,8 +26,10 @@ function useElapsed(start?: string, end?: string | null) {
   return ((end ? new Date(end).getTime() : now) - new Date(start).getTime()) / 1000
 }
 
-function NumberCell({ value, onCommit, editable, suffix, decimal }: {
+function NumberCell({ value, onCommit, editable, suffix, decimal, ghost }: {
   value: number; onCommit: (v: number) => void; editable: boolean; suffix: string; decimal?: boolean
+  /** What you did on this set last time, shown greyed until you enter a number. */
+  ghost?: number
 }) {
   const [text, setText] = useState(value ? String(value) : '')
   useEffect(() => { setText(value ? String(value) : '') }, [value])
@@ -46,8 +48,8 @@ function NumberCell({ value, onCommit, editable, suffix, decimal }: {
         }}
         keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
         selectTextOnFocus
-        placeholder="0"
-        placeholderTextColor={color.textTertiary}
+        placeholder={ghost ? String(ghost) : '0'}
+        placeholderTextColor={ghost ? color.textTertiary : color.textFaint}
         selectionColor={color.text}
         style={{ color: color.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], textAlign: 'center', minWidth: 36 }}
       />
@@ -95,12 +97,35 @@ export default function SessionScreen() {
       .map(([order, list]) => ({ order, exerciseId: list[0].exercise_id, sets: list.sort((a, b) => a.set_index - b.set_index) }))
   }, [sets])
 
+  /** Last time's set at the same position (the last one repeats if there were fewer). */
+  const ghostFor = (exerciseId: string, s: GymSet) => {
+    if (s.is_warmup) return undefined
+    const prev = (previous[exerciseId] ?? []).filter(p => !p.is_warmup)
+    if (!prev.length) return undefined
+    const group = sets.filter(x => x.exercise_id === exerciseId && !x.is_warmup).sort((a, b) => a.set_index - b.set_index)
+    const position = group.findIndex(x => x.id === s.id)
+    const p = prev[Math.min(Math.max(0, position), prev.length - 1)]
+    return { weight: Number(p.weight_kg), reps: p.reps }
+  }
+
   const done = sets.filter(s => s.completed && !s.is_warmup)
   const volume = done.reduce((a, s) => a + setVolume(s), 0)
 
   const patchSet = (setId: string, patch: Partial<GymSet>) => {
     setSets(prev => prev.map(s => (s.id === setId ? { ...s, ...patch } : s)))
     updateSet(setId, patch).catch(e => Alert.alert('Not saved', (e as Error).message))
+  }
+
+  /** Copy last time's numbers into any set still blank — the starting point to beat. */
+  const fillFromLast = (group: { exerciseId: string; sets: GymSet[] }) => {
+    const prev = (previous[group.exerciseId] ?? []).filter(p => !p.is_warmup)
+    if (!prev.length) return
+    tap()
+    const working = group.sets.filter(s => !s.is_warmup)
+    working.forEach((s, i) => {
+      const p = prev[Math.min(i, prev.length - 1)]
+      if (Number(s.weight_kg) === 0 && s.reps === 0) patchSet(s.id, { weight_kg: Number(p.weight_kg), reps: p.reps })
+    })
   }
 
   const add = async (group: { order: number; exerciseId: string; sets: GymSet[] }) => {
@@ -211,8 +236,10 @@ export default function SessionScreen() {
                       {s.is_warmup ? 'W' : g.sets.filter(x => !x.is_warmup && x.set_index <= s.set_index).length}
                     </Text>
                   </Pressable>
-                  <NumberCell value={Number(s.weight_kg)} decimal suffix="kg" editable={editable} onCommit={v => patchSet(s.id, { weight_kg: v })} />
-                  <NumberCell value={s.reps} suffix="" editable={editable} onCommit={v => patchSet(s.id, { reps: v })} />
+                  <NumberCell value={Number(s.weight_kg)} decimal suffix="kg" editable={editable} ghost={ghostFor(g.exerciseId, s)?.weight}
+                    onCommit={v => patchSet(s.id, { weight_kg: v })} />
+                  <NumberCell value={s.reps} suffix="" editable={editable} ghost={ghostFor(g.exerciseId, s)?.reps}
+                    onCommit={v => patchSet(s.id, { reps: v })} />
                   <Pressable
                     disabled={!editable}
                     onPress={() => {
@@ -231,9 +258,16 @@ export default function SessionScreen() {
               ))}
 
               {editable ? (
-                <Pressable onPress={() => add(g)} style={{ marginTop: space.m, paddingVertical: space.s, alignItems: 'center' }}>
-                  <Text style={[type.sub, { color: color.text }]}>+ Add set</Text>
-                </Pressable>
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: space.xl, marginTop: space.m }}>
+                  <Pressable onPress={() => add(g)} style={{ paddingVertical: space.s }}>
+                    <Text style={[type.sub, { color: color.text }]}>+ Add set</Text>
+                  </Pressable>
+                  {prev.length && g.sets.some(s => !s.is_warmup && Number(s.weight_kg) === 0 && s.reps === 0) ? (
+                    <Pressable onPress={() => fillFromLast(g)} style={{ paddingVertical: space.s }}>
+                      <Text style={[type.sub, { color: color.textSecondary }]}>Fill from last time</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
             </Card>
           )
