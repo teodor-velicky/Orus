@@ -14,7 +14,7 @@ import { addDays, fromIso, localIso } from '../format'
 import { colmiDecoder } from './colmi'
 import { enmo, MinuteAggregator, MinuteRow, rollupDay } from './aggregate'
 import { fromBase64, toBase64 } from './packet'
-import { getRing, patchRing, pushTrail } from './live'
+import { getRing, patchRing, pushTrail, logPacket } from './live'
 import { broadcastVitals } from './share'
 import { isExpoGo } from '../env'
 import type { RingDecoder, RingEvent } from './types'
@@ -127,7 +127,10 @@ async function connect(): Promise<void> {
       if (!services.has(ch.service.toUpperCase())) continue
       subs.push(device.monitorCharacteristicForService(ch.service, ch.notify, (err, c) => {
         if (err || !c?.value) return
-        handle(decoder.decode(ch.id, fromBase64(c.value), Date.now()))
+        const bytes = fromBase64(c.value)
+        const events = decoder.decode(ch.id, bytes, Date.now())
+        logPacket('<', ch.id, bytes, events.length ? events.map(e => e.type).join(',') : 'unparsed')
+        handle(events)
       }))
     }
     subs.push(m.onDeviceDisconnected(saved.id, () => onDisconnected()))
@@ -173,6 +176,7 @@ async function send(packets: { channel: string; bytes: Uint8Array }[]): Promise<
   for (const p of packets) {
     const ch = decoder.channels.find(c => c.id === p.channel)
     if (!ch) continue
+    logPacket('>', p.channel, p.bytes)
     const b64 = toBase64(p.bytes)
     try {
       await device.writeCharacteristicWithResponseForService(ch.service, ch.write, b64)

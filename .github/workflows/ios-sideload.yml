@@ -13,6 +13,11 @@ name: iOS IPA for Sideloadly
 
 on:
   workflow_dispatch:
+    inputs:
+      embed_entitlements:
+        description: "Ad-hoc sign the app so HealthKit survives (some Sideloadly versions reject this: 'Invalid file')"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -75,6 +80,7 @@ jobs:
       # without HealthKit ("Missing com.apple.developer.healthkit entitlement").
       # An ad-hoc signature embeds them; Sideloadly keeps them when it re-signs.
       - name: Embed entitlements (HealthKit)
+        if: ${{ inputs.embed_entitlements }}
         run: |
           APP="$RUNNER_TEMP/Orus.xcarchive/Products/Applications/Orus.app"
           ENT="ios/Orus/Orus.entitlements"

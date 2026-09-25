@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Animated, Easing, Pressable, Text, View } from 'react-native'
+import { Alert, Animated, Easing, Pressable, ScrollView, Share, Text, View } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSession } from '../lib/session'
-import { isFresh, useRing } from '../lib/ring/live'
+import { clearLog, isFresh, useRing } from '../lib/ring/live'
 import { forget, pair, scan, setSharing, startLive, stopLive, syncHistory } from '../lib/ring/service'
 import { timeAgo } from '../lib/format'
-import { color, radius, space, type } from '../lib/theme'
+import { color, font, radius, space, type } from '../lib/theme'
 import { Button, Card, Empty, Header, Label, Screen, Segmented, Stat, tap } from '../components/ui'
 import { AreaChart, Bars, Gauge } from '../components/charts'
 import { Logo } from '../components/Logo'
@@ -165,6 +165,29 @@ export default function RingScreen() {
               </Card>
             </>
           ) : null}
+
+          {/* Diagnostics: raw packets in and out, for fixing the decoder against a real ring. */}
+          <Label>Diagnostics</Label>
+          <Card>
+            <Text style={[type.caption, { marginBottom: space.m }]}>
+              {ring.log.length
+                ? `${ring.log.length} packets. "<" is from the ring, ">" is to the ring; "unparsed" means Orus didn't understand it.`
+                : 'Packets appear here while the ring is connected.'}
+            </Text>
+            <View style={{ maxHeight: 260, borderRadius: radius.s, backgroundColor: color.inset, padding: space.m }}>
+              <ScrollView>
+                <Text selectable style={{ fontFamily: font.mono, fontSize: 10, lineHeight: 15, color: color.textSecondary }}>
+                  {ring.log.slice(-40).join('\n') || '—'}
+                </Text>
+              </ScrollView>
+            </View>
+            <View style={{ flexDirection: 'row', gap: space.m, marginTop: space.l }}>
+              <Button label="Share log" variant="secondary" icon="share-outline" style={{ flex: 1 }}
+                disabled={!ring.log.length}
+                onPress={() => Share.share({ message: `Orus ring log (${ring.device?.name})\n${ring.log.join('\n')}` })} />
+              <Button label="Clear" variant="ghost" style={{ flex: 1 }} onPress={() => clearLog()} />
+            </View>
+          </Card>
 
           <Pressable onPress={() => router.push('/heart')} style={{ marginTop: space.xl, padding: space.m, borderRadius: radius.m, alignItems: 'center' }}>
             <Text style={[type.sub, { color: color.text }]}>Nightly trends →</Text>

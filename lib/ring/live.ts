@@ -23,12 +23,14 @@ export interface RingLiveState {
   motionTrail: number[]
   lastUploadAt: number | null
   error: string | null
+  /** Diagnostics: last packets in and out, newest last ("hh:mm:ss < uart 01 02 …"). */
+  log: string[]
 }
 
 let state: RingLiveState = {
   status: 'unavailable', device: null, battery: null, live: false, sharing: false, syncing: false,
   hr: null, hrv: null, spo2: null, skinTemp: null, hrTrail: [], motionTrail: [],
-  lastUploadAt: null, error: null,
+  lastUploadAt: null, error: null, log: [],
 }
 
 const listeners = new Set<() => void>()
@@ -44,6 +46,20 @@ export function patchRing(patch: Partial<RingLiveState>): void {
 
 export function pushTrail(key: 'hrTrail' | 'motionTrail', values: number[], max = 120): void {
   patchRing({ [key]: [...state[key], ...values].slice(-max) } as Partial<RingLiveState>)
+}
+
+const LOG_MAX = 120
+
+/** Record a raw packet for the diagnostics panel. */
+export function logPacket(direction: '<' | '>', channel: string, bytes: Uint8Array, note = ''): void {
+  const t = new Date()
+  const hh = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')}`
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ')
+  patchRing({ log: [...state.log, `${hh} ${direction} ${channel} ${hex}${note ? ` ${note}` : ''}`].slice(-LOG_MAX) })
+}
+
+export function clearLog(): void {
+  patchRing({ log: [] })
 }
 
 export function subscribeRing(l: () => void): () => void {
