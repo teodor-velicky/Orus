@@ -263,6 +263,10 @@ This is built from public protocol research (Gadgetbridge, colmi_r02_client, mk5
 
 On the R09 firmware we have, the documented heart-rate channel (`0x69` kind `0x01`) replies with all zeros forever. Kind `0x0a` instead streams every heartbeat: bytes 6-7 are the last beat-to-beat interval in milliseconds (little endian), around twice a second, with each frame repeated. Orus reads live heart rate from the median of the last 8 intervals and HRV (RMSSD) from the intervals themselves, and live mode rotates beats → temperature → SpO₂. Frames captured from a real ring are in `lib/ring/__tests__/custom.test.ts`.
 
+### Raw motion and the beat stream cannot run together
+
+Sending `a1 04 04` (raw motion on) also starts the ring’s raw optical producers, and while those run the beat stream on kind `0x0a` returns only zeros: no live heart rate, no HRV. `LIVE_RAW_MOTION` in `lib/ring/custom.ts` is therefore off. Turn it on only when you are deliberately working on the accelerometer, and expect heart rate to stop while it is on.
+
 ### Things to know
 
 * **One connection at a time.** Force-quit QRing, or unpair the ring from it, before pairing in Orus.

@@ -58,8 +58,12 @@ const SLEEP_STAGE: Record<number, 'core' | 'deep' | 'rem' | 'awake'> = { 2: 'cor
 
 /** Ring logs HR every N minutes (5–60, multiples of 5). Lower = better data, more battery. */
 export const HR_LOG_INTERVAL_MIN = 5
-/** Stream raw motion during live mode. Stock firmware also starts optical raw producers → battery cost. */
-export const LIVE_RAW_MOTION = true
+/**
+ * Stream raw motion during live mode. OFF: on the R09 this also starts the raw
+ * optical producers, and while they run the beat stream returns only zeros —
+ * i.e. raw motion costs you live heart rate and HRV. Captured 2026-09-25.
+ */
+export const LIVE_RAW_MOTION = false
 /** VERIFY on R09: legacy R02 layout is ±4 g over 12 bits → 512 LSB/g. */
 export const ACCEL_LSB_PER_G = 512
 /** Give up on a history step after this much silence (old firmware skips some). */
@@ -69,9 +73,11 @@ const STEP_TIMEOUT_MS = 10_000
  * measurement at a time. HR gets most of the time; the others refresh the tiles.
  */
 const LIVE_PLAN: { kind: number; ms: number }[] = [
-  { kind: KIND.HRV, ms: 90_000 },
-  { kind: KIND.TEMP, ms: 30_000 },
-  { kind: KIND.SPO2, ms: 35_000 },
+  // Beats are the live heart rate, so they get most of the cycle; the other two
+  // are spot checks. Each switch costs a few seconds while the sensor re-locks.
+  { kind: KIND.HRV, ms: 180_000 },
+  { kind: KIND.TEMP, ms: 25_000 },
+  { kind: KIND.SPO2, ms: 30_000 },
 ]
 
 /** During a run only heart rate matters — no rotation, so there are no HR gaps. */

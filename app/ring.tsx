@@ -145,7 +145,7 @@ export default function RingScreen() {
               <Bars values={ring.motionTrail.slice(-60).map(v => v || null)} height={56} />
             ) : (
               <Text style={type.sub}>
-                {ring.live ? 'Waiting for motion packets… (R09 raw format is unverified — see lib/ring/custom.ts)' : 'Motion streams while live mode is on.'}
+                Raw motion is off: on this ring it stops heart rate and HRV from streaming. Sleep and activity still use the ring's own motion tracking.
               </Text>
             )}
           </Card>
