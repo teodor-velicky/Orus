@@ -255,6 +255,15 @@ export function parseBeatStream(b: Uint8Array, at: number): RingEvent[] {
   ]
 }
 
+/** Short label for the diagnostics log: is a frame ignored on purpose, or unknown? */
+export function frameNote(b: Uint8Array): string {
+  if (b[0] === CMD.RAW) return b[1] === 0x03 ? 'raw motion' : 'raw optical (unused)'
+  if (b[0] === CMD.MEASURE || b[0] === CMD.MEASURE_STOP) {
+    return b.slice(3).every((x, i) => i >= 12 || x === 0) ? 'measuring' : 'unhandled'
+  }
+  return 'unhandled'
+}
+
 export function parseMeasurement(b: Uint8Array, at: number): RingEvent[] {
   const kind = b[1]
   const error = b[2]

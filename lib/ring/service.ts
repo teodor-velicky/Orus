@@ -12,6 +12,7 @@ import { supabase } from '../supabase'
 import { buildSleepSessions } from '../health'
 import { addDays, fromIso, localIso } from '../format'
 import { colmiDecoder } from './colmi'
+import { frameNote } from './custom'
 import { enmo, MinuteAggregator, MinuteRow, rollupDay, rmssd } from './aggregate'
 import { fromBase64, toBase64 } from './packet'
 import { getRing, patchRing, pushTrail, logPacket } from './live'
@@ -131,7 +132,7 @@ async function connect(): Promise<void> {
         if (err || !c?.value) return
         const bytes = fromBase64(c.value)
         const events = decoder.decode(ch.id, bytes, Date.now())
-        logPacket('<', ch.id, bytes, events.length ? events.map(e => e.type).join(',') : 'unparsed')
+        logPacket('<', ch.id, bytes, events.length ? events.map(e => e.type).join(',') : frameNote(bytes))
         handle(events)
       }))
     }
