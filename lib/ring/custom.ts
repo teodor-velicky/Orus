@@ -69,14 +69,13 @@ const STEP_TIMEOUT_MS = 10_000
  * measurement at a time. HR gets most of the time; the others refresh the tiles.
  */
 const LIVE_PLAN: { kind: number; ms: number }[] = [
-  { kind: KIND.HR, ms: 90_000 },
+  { kind: KIND.HRV, ms: 90_000 },
   { kind: KIND.TEMP, ms: 30_000 },
-  { kind: KIND.HRV, ms: 45_000 },
   { kind: KIND.SPO2, ms: 35_000 },
 ]
 
 /** During a run only heart rate matters — no rotation, so there are no HR gaps. */
-const WORKOUT_PLAN: { kind: number; ms: number }[] = [{ kind: KIND.HR, ms: Infinity }]
+const WORKOUT_PLAN: { kind: number; ms: number }[] = [{ kind: KIND.HRV, ms: Infinity }]
 let plan = LIVE_PLAN
 
 // ─── Time helpers (the ring keeps LOCAL wall-clock time) ───
@@ -221,12 +220,52 @@ export function parseSpo2History(v: Uint8Array, now = new Date()): RingEvent[] {
 }
 
 /** Live measurement response: [0x69, kind, error, value]. */
+/**
+ * Live beat stream (kind 0x0a). Captured from an R09: bytes 6-7 hold the last
+ * beat-to-beat interval in ms (little endian), e.g. `69 0a 00 00 00 00 c8 02`
+ * = 712 ms = 84 bpm. The ring repeats each frame, so identical values arriving
+ * within a second are the same beat. Heart rate is the median of the last few
+ * intervals; jitter between single beats is normal and would look broken.
+ *
+ * The documented HR channel (kind 0x01) answers all zeros on this firmware,
+ * so this stream is where live heart rate and HRV actually come from.
+ */
+const RR_MIN_MS = 300
+const RR_MAX_MS = 2000
+const RR_WINDOW = 8
+let rrWindow: number[] = []
+let lastRr: { ms: number; at: number } | null = null
+
+export function resetBeatStream(): void {
+  rrWindow = []
+  lastRr = null
+}
+
+export function parseBeatStream(b: Uint8Array, at: number): RingEvent[] {
+  const ms = b[6] | (b[7] << 8)
+  if (ms < RR_MIN_MS || ms > RR_MAX_MS) return []
+  if (lastRr && lastRr.ms === ms && at - lastRr.at < 900) return [] // repeat of the same beat
+  lastRr = { ms, at }
+  rrWindow = [...rrWindow, ms].slice(-RR_WINDOW)
+  const sorted = [...rrWindow].sort((x, y) => x - y)
+  const median = sorted[Math.floor(sorted.length / 2)]
+  return [
+    { type: 'rr', at, intervalsMs: [ms] },
+    { type: 'hr', at, bpm: Math.round(60_000 / median) },
+  ]
+}
+
 export function parseMeasurement(b: Uint8Array, at: number): RingEvent[] {
   const kind = b[1]
   const error = b[2]
   const value = b[3]
   if (error === 1) return [{ type: 'notice', at, message: 'Ring not worn correctly — adjust the fit' }]
-  if (error !== 0 || value === 0) return []
+  if (error !== 0) return []
+  if (kind === KIND.HRV) {
+    const beats = parseBeatStream(b, at)
+    if (beats.length) return beats
+  }
+  if (value === 0) return []
   switch (kind) {
     case KIND.HR: return [{ type: 'hr', at, bpm: value }]
     case KIND.SPO2: return [{ type: 'spo2', at, pct: value }]
@@ -444,6 +483,7 @@ export const custom = {
 
   liveStart(mode: 'vitals' | 'workout' = 'vitals'): Outgoing {
     plan = mode === 'workout' ? WORKOUT_PLAN : LIVE_PLAN
+    resetBeatStream()
     livePhase = 0
     livePhaseStart = Date.now()
     return [

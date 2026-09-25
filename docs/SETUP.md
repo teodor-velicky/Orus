@@ -259,6 +259,10 @@ This is built from public protocol research (Gadgetbridge, colmi_r02_client, mk5
 
 **Live mode:** the ring runs one optical measurement at a time, so live mode rotates HR 90 s → temp 30 s → HRV 45 s → SpO₂ 35 s while raw motion streams.
 
+### Live heart rate comes from the beat stream
+
+On the R09 firmware we have, the documented heart-rate channel (`0x69` kind `0x01`) replies with all zeros forever. Kind `0x0a` instead streams every heartbeat: bytes 6-7 are the last beat-to-beat interval in milliseconds (little endian), around twice a second, with each frame repeated. Orus reads live heart rate from the median of the last 8 intervals and HRV (RMSSD) from the intervals themselves, and live mode rotates beats → temperature → SpO₂. Frames captured from a real ring are in `lib/ring/__tests__/custom.test.ts`.
+
 ### Things to know
 
 * **One connection at a time.** Force-quit QRing, or unpair the ring from it, before pairing in Orus.

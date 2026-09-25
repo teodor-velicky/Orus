@@ -12,7 +12,7 @@ import { supabase } from '../supabase'
 import { buildSleepSessions } from '../health'
 import { addDays, fromIso, localIso } from '../format'
 import { colmiDecoder } from './colmi'
-import { enmo, MinuteAggregator, MinuteRow, rollupDay } from './aggregate'
+import { enmo, MinuteAggregator, MinuteRow, rollupDay, rmssd } from './aggregate'
 import { fromBase64, toBase64 } from './packet'
 import { getRing, patchRing, pushTrail, logPacket } from './live'
 import { broadcastVitals } from './share'
@@ -50,6 +50,8 @@ let flushTimer: ReturnType<typeof setInterval> | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectAttempts = 0
 let wantConnected = false
+/** Recent beat-to-beat intervals, for the live HRV tile. */
+let liveRr: number[] = []
 
 export async function initRing(): Promise<void> {
   // No ring paired ⇒ stay completely inert: don't create the Bluetooth
@@ -193,6 +195,7 @@ async function send(packets: { channel: string; bytes: Uint8Array }[]): Promise<
 export async function startLive(mode: 'vitals' | 'workout' = 'vitals'): Promise<void> {
   if (!device) return
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null; await send(decoder.liveStop()).catch(() => {}) }
+  liveRr = []
   await send(decoder.liveStart(mode))
   liveTimer = setInterval(() => { send(decoder.liveKeepAlive()).catch(() => {}) }, 10_000)
   patchRing({ live: true })
@@ -222,6 +225,14 @@ function handle(events: RingEvent[]) {
       case 'hrv':
         if (recent) patchRing({ hrv: { value: e.ms, at: e.at } })
         break
+      case 'rr': {
+        // The live HRV tile: RMSSD over the last ~60 beats, once there are enough.
+        if (!recent) break
+        liveRr = [...liveRr, ...e.intervalsMs].slice(-60)
+        const ms = liveRr.length >= 20 ? rmssd(liveRr) : null
+        if (ms != null) patchRing({ hrv: { value: ms, at: e.at } })
+        break
+      }
       case 'spo2':
         if (recent) patchRing({ spo2: { value: e.pct, at: e.at } })
         break

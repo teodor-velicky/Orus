@@ -2,7 +2,7 @@
 // Run: npm run test:ring
 import * as assert from 'assert'
 import {
-  custom, parseActivity, parseHeartRateLog, parseHrvLog, parseMeasurement, parseRawMotion,
+  custom, parseActivity, parseHeartRateLog, parseHrvLog, parseMeasurement, parseRawMotion, resetBeatStream,
   parseSleep, parseSpo2History, requests, BIG_DATA,
 } from '../custom'
 import { makePacket, isValidPacket } from '../packet'
@@ -131,6 +131,44 @@ test('live step notifications become deltas', () => {
   assert.deepStrictEqual(custom.decode('uart', makePacket(0x73, [0x12, 0, 0x03, 0xe8]), 1), [])
   assert.deepStrictEqual(custom.decode('uart', makePacket(0x73, [0x12, 0, 0x04, 0x00]), 2), [{ type: 'steps', at: 2, count: 24 }])
   custom.reset()
+})
+
+// Real frames captured from an R09 (R09_CB01) with the ring worn.
+const hex = (h: string) => new Uint8Array(h.split(' ').map(x => parseInt(x, 16)))
+const beatFrame = (ms: number) => {
+  const b = new Uint8Array(16)
+  b[0] = 0x69
+  b[1] = 0x0a
+  b[6] = ms & 0xff
+  b[7] = ms >> 8
+  return b
+}
+
+test('kind 0x0a streams beat-to-beat intervals, not a single HRV value', () => {
+  resetBeatStream()
+  // 0x02c8 = 712 ms = 84 bpm
+  const first = parseMeasurement(hex('69 0a 00 00 00 00 c8 02 00 00 00 00 00 00 00 3d'), 1000)
+  assert.deepStrictEqual(first[0], { type: 'rr', at: 1000, intervalsMs: [712] })
+  assert.deepStrictEqual(first[1], { type: 'hr', at: 1000, bpm: 84 })
+
+  // The ring repeats each frame; the same value within a second is one beat.
+  assert.deepStrictEqual(parseMeasurement(hex('69 0a 00 00 00 00 c8 02 00 00 00 00 00 00 00 3d'), 1300), [])
+
+  // Heart rate follows the median of recent beats, so one odd interval can't spike it.
+  let last: RingEvent[] = []
+  const series = [714, 730, 748, 770, 800, 923, 836]
+  series.forEach((ms, i) => { last = parseMeasurement(beatFrame(ms), 2000 + i * 1000) })
+  const hr = last.find(e => e.type === 'hr') as { bpm: number }
+  assert.ok(hr.bpm >= 72 && hr.bpm <= 84, 'bpm ' + hr.bpm)
+
+  // Noise outside 300-2000 ms is ignored
+  resetBeatStream()
+  assert.deepStrictEqual(parseMeasurement(beatFrame(16), 1), [])
+})
+
+test('spo2 sends zeros while measuring, then the reading', () => {
+  assert.deepStrictEqual(parseMeasurement(hex('69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6c'), 1), [])
+  assert.deepStrictEqual(parseMeasurement(hex('69 03 00 61 01 00 00 00 00 00 00 00 00 00 00 ce'), 1), [{ type: 'spo2', at: 1, pct: 97 }])
 })
 
 console.log(`\n${passed} tests passed`)
