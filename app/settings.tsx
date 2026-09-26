@@ -13,6 +13,7 @@ import { useRing } from '../lib/ring/live'
 import { timeAgo } from '../lib/format'
 import { metricsRange } from '../lib/metrics'
 import { recomputeZones } from '../lib/run/data'
+import { createWidgetLink, hasWidgetToken, revokeWidgetToken } from '../lib/widget'
 import { zoneSettings } from '../lib/run/training'
 import type { DailyMetrics, Profile } from '../lib/types'
 import { SettingsView } from '../components/views/SettingsView'
@@ -35,6 +36,8 @@ export default function Settings() {
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [strava, setStrava] = useState<StravaStatus | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [widget, setWidget] = useState(false)
+  useEffect(() => { if (me) hasWidgetToken(me.id).then(setWidget).catch(() => {}) }, [me])
 
   const loadStatus = useCallback(() => {
     lastHealthSync().then(setLastSync)
@@ -86,6 +89,7 @@ export default function Settings() {
             ? `${ring.status}${ring.battery ? ` · ${ring.battery.pct}%` : ''}`
             : isExpoGo ? 'Needs the installed app' : 'Optional · tap to pair',
         },
+        widget: { enabled: widget },
         circle: circle ? { code: circle.invite_code, partner: partner ? firstName(partner) : null } : undefined,
         busy,
       }}
@@ -129,6 +133,20 @@ export default function Settings() {
         }),
         onStravaDisconnect: () => run('strava-off', disconnectStrava),
         onOpenRing: () => router.push('/ring'),
+        onWidgetLink: () => run('widget', async () => {
+          const link = await createWidgetLink()
+          setWidget(true)
+          // Share sheet → copy, or send it to yourself; then paste into Scriptable.
+          await Share.share({ message: link })
+        }),
+        onWidgetRevoke: () => Alert.alert('Turn off the widget?', 'The link stops working straight away.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Turn off', style: 'destructive', onPress: () => run('widget', async () => {
+            if (!me) return
+            await revokeWidgetToken(me.id)
+            setWidget(false)
+          }) },
+        ]),
         onShareCode: () => { if (circle) Share.share({ message: `Join me on Orus with code ${circle.invite_code}` }) },
         onLeave: () => Alert.alert('Leave shared space?', 'You will stop seeing each other’s data.', [
           { text: 'Cancel', style: 'cancel' },

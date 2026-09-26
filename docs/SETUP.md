@@ -289,6 +289,17 @@ Neither is needed for completeness. The ring holds its own history, so an ordina
 * **Background.** The ring stores its history on-device. Orus connects whenever the app is open, pulls history since the last sync, and only streams live data while the Ring screen is visible. This keeps battery drain low. The Bluetooth background mode is enabled so the upload can finish after you leave the app.
 * **Live sharing** uses a private Realtime channel per circle (RLS on `realtime.messages`). It sends at most one message every 5 seconds, and only while you've switched sharing on.
 
+## Lock screen widget
+
+A native widget would need an app extension and an App Group, and App Groups need a paid Apple account, so the widget runs in [Scriptable](https://scriptable.app) (free) instead.
+
+1. Deploy the endpoint: `supabase functions deploy widget --no-verify-jwt`.
+2. In Orus: **Settings → Lock screen widget → Create**, then share or copy the link.
+3. Install Scriptable, add a new script, paste `scripts/orus-widget.js` and replace `ORUS_URL` with your link. Name it "Orus".
+4. Long-press the lock screen → Customise → add a Scriptable widget and pick the script. Circular, inline and rectangular are all handled.
+
+The link carries a 64-character token that maps to one user and reads only that user’s heart-rate numbers through the `widget` edge function (service role, no session). **New link** rotates it and **Off** revokes it. iOS decides how often lock screen widgets refresh, usually every few minutes, and the script caches the last reading so a dropped connection shows a greyed number rather than an empty widget.
+
 ## Development
 
 ```bash

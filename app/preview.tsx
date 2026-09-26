@@ -112,9 +112,9 @@ export default function Preview() {
             kcal: '', protein: '150', sleepH: '8', weight: '78.4', kcalAuto: 2650, proteinAuto: 141,
             maxHr: '', restingHr: '48', maxHrAuto: 189, restingHrAuto: 52, zones: hrZones(189, 48),
             health: { available: true, lastSync: '2m ago' }, strava: { state: 'connected', athlete: 'Teo V.', lastSync: '1h ago' },
-            ring: { name: 'R09_1A2B', status: 'connected · 64%' }, circle: { code: 'A7K2QX', partner: 'Anna' }, busy: null,
+            ring: { name: 'R09_1A2B', status: 'connected · 64%' }, widget: { enabled: true }, circle: { code: 'A7K2QX', partner: 'Anna' }, busy: null,
           }}
-          h={{ onBack: noop, onChange: noop, onSave: noop, onHealthSync: noop, onStravaConnect: noop, onStravaSync: noop, onStravaDisconnect: noop, onOpenRing: noop, onShareCode: noop, onLeave: noop, onSignOut: noop }}
+          h={{ onBack: noop, onChange: noop, onSave: noop, onHealthSync: noop, onStravaConnect: noop, onStravaSync: noop, onStravaDisconnect: noop, onOpenRing: noop, onWidgetLink: noop, onWidgetRevoke: noop, onShareCode: noop, onLeave: noop, onSignOut: noop }}
         />
       )
     case 'log':

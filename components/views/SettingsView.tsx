@@ -29,6 +29,7 @@ export interface SettingsModel {
   health: { available: boolean; lastSync: string; note?: string }
   strava: { state: 'unconfigured' | 'unavailable' | 'disconnected' | 'connected'; athlete?: string | null; lastSync?: string }
   ring: { name?: string; status: string }
+  widget: { enabled: boolean }
   circle?: { code: string; partner?: string | null }
   busy: string | null
 }
@@ -42,6 +43,8 @@ export interface SettingsHandlers {
   onStravaSync: () => void
   onStravaDisconnect: () => void
   onOpenRing: () => void
+  onWidgetLink: () => void
+  onWidgetRevoke: () => void
   onShareCode: () => void
   onLeave: () => void
   onSignOut: () => void
@@ -214,7 +217,19 @@ export function SettingsView({ m, h }: { m: SettingsModel; h: SettingsHandlers }
             ))}
           </Card>
         ) : null}
-        <LinkRow icon="ellipse-outline" title={m.ring.name ?? 'Smart ring'} status={m.ring.status.toUpperCase()} onPress={h.onOpenRing} last />
+        <LinkRow icon="ellipse-outline" title={m.ring.name ?? 'Smart ring'} status={m.ring.status.toUpperCase()} onPress={h.onOpenRing} />
+        <LinkRow
+          icon="phone-portrait-outline" title="Lock screen widget"
+          status={m.widget.enabled ? 'LINK CREATED · SCRIPTABLE' : 'HEART RATE ON YOUR LOCK SCREEN'}
+          last
+          right={
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <SmallButton label={m.widget.enabled ? 'New link' : 'Create'} primary={!m.widget.enabled}
+                onPress={h.onWidgetLink} loading={m.busy === 'widget'} />
+              {m.widget.enabled ? <SmallButton label="Off" onPress={h.onWidgetRevoke} /> : null}
+            </View>
+          }
+        />
       </Card>
 
       {/* SHARED SPACE */}
