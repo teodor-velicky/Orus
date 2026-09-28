@@ -1,7 +1,7 @@
 // Readiness: one 0-100 number for "how ready is my body today", built from
 // parts you can each see and argue with. Pure (unit-tested).
 //
-//   Sleep        30 %  duration vs target, efficiency, deep + REM share
+//   Sleep        30 %  hours vs sleep need, deep + REM share, consistency, efficiency
 //   HRV          25 %  vs your own baseline (or typical for your age while calibrating)
 //   Resting HR   15 %  vs your own baseline (or a general healthy range while calibrating)
 //   Skin temp    10 %  distance from your usual night temperature, either direction
@@ -38,6 +38,10 @@ export interface ReadinessExtra {
   /** Yesterday's food quality, 0-100 (null when fewer than two meals were logged). */
   foodQuality?: number | null
   age?: number | null
+  /** Tonight's sleep need (lib/sleep.ts); falls back to the fixed target. */
+  sleepNeedMin?: number | null
+  /** 0-100 bed/wake regularity over the last 4 nights (lib/sleep.ts). */
+  sleepConsistency?: number | null
 }
 
 const BASELINE_NIGHTS = 5
@@ -52,21 +56,29 @@ const hm = (min: number) => `${Math.floor(min / 60)}h ${String(Math.round(min % 
 export const typicalRmssd = (age: number | null | undefined) =>
   Math.max(25, Math.min(60, 70 - 0.8 * (age && age > 10 ? age : 30)))
 
-export function sleepScore(night: SleepSession, targetMin: number): { score: number; detail: string } {
-  const duration = ramp(night.asleep_min / targetMin, 0.55, 1)
+/**
+ * Like WHOOP's Sleep Performance: mostly hours slept against what you needed,
+ * then how restorative it was, how regular your schedule is, and efficiency.
+ * Missing pieces hand their weight to hours vs need.
+ */
+export function sleepScore(night: SleepSession, needMin: number, consistency?: number | null): { score: number; detail: string } {
+  const duration = ramp(night.asleep_min / needMin, 0.55, 1)
   const efficiency = ramp(night.asleep_min / Math.max(1, night.in_bed_min), 0.75, 0.9)
   const staged = night.deep_min + night.rem_min + night.core_min > 0
-  if (!staged) {
-    return {
-      score: Math.round(duration * 0.8 + efficiency * 0.2),
-      detail: `${hm(night.asleep_min)} of ${Math.round(targetMin / 60)}h`,
-    }
-  }
-  const restorativeShare = (night.deep_min + night.rem_min) / Math.max(1, night.asleep_min)
-  const restorative = ramp(restorativeShare, 0.2, 0.4)
+  const restorativeShare = staged ? (night.deep_min + night.rem_min) / Math.max(1, night.asleep_min) : null
+  const parts: [number, number][] = [
+    [duration, 0.55],
+    [efficiency, 0.1],
+    ...(restorativeShare != null ? [[ramp(restorativeShare, 0.2, 0.4), 0.2] as [number, number]] : []),
+    ...(consistency != null ? [[consistency, 0.15] as [number, number]] : []),
+  ]
+  const covered = parts.reduce((a, [, w]) => a + w, 0)
+  // Whatever is missing goes to hours vs need, the part that matters most.
+  parts[0] = [duration, 0.55 + (1 - covered)]
+  const score = Math.round(parts.reduce((a, [v, w]) => a + v * w, 0))
   return {
-    score: Math.round(duration * 0.6 + efficiency * 0.15 + restorative * 0.25),
-    detail: `${hm(night.asleep_min)} · ${Math.round(restorativeShare * 100)}% deep + REM`,
+    score,
+    detail: `${hm(night.asleep_min)} of ${hm(needMin)} needed${restorativeShare != null ? ` · ${Math.round(restorativeShare * 100)}% deep + REM` : ''}`,
   }
 }
 
@@ -84,7 +96,7 @@ export function readiness(
     parts.push({ ...p, weight: WEIGHTS[p.key] * (p.provisional ? 0.5 : 1) })
 
   if (lastNight) {
-    const s = sleepScore(lastNight, sleepTargetMin)
+    const s = sleepScore(lastNight, extra.sleepNeedMin ?? sleepTargetMin, extra.sleepConsistency)
     add({ key: 'sleep', label: 'Sleep', score: s.score, detail: s.detail })
   }
 

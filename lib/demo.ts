@@ -94,6 +94,7 @@ export function demoToday(): TodayModel {
     syncedText: '2m ago',
     ring: { name: 'R09_1A2B', connected: true, battery: 64, liveHr: 58 },
     heart: { live: 58, resting: 51 },
+    strain: { value: 11.4, activeMin: 48, target: { lo: 14, hi: 18, label: 'Push', detail: 'Recovered: a hard session or a long day is well within reach.' } },
     skin: { delta: 0.1, nightly: 34.3, live: null, nightsToBaseline: 1 },
     energy: { bmr: 1788, basal: 1043, active: 612, total: 1655, fromHr: 410, fromSteps: 380, hrCoverage: 0.8, steps: 11840, eaten: 1430 },
     trends: [

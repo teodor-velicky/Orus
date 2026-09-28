@@ -102,6 +102,19 @@ test('resting HR from the 5-minute ring log', () => {
   assert.strictEqual(rollupDay('2026-09-15', minutes).resting_hr, 50)
 })
 
+test('nightly HRV prefers deep-sleep readings', () => {
+  const start = new Date(2026, 8, 15, 0, 0, 0).getTime()
+  // HRV log every 30 minutes; deep sleep 01:00-02:00 reads higher
+  const minutes: MinuteRow[] = Array.from({ length: 12 }, (_, i) => {
+    const t = start + i * 30 * 60000
+    const deep = t >= start + 3600_000 && t < start + 7200_000
+    return { minute: new Date(t).toISOString(), hr_avg: null, hr_min: null, hr_max: null, hrv_ms: deep ? 70 : 40, skin_temp_c: null, spo2_pct: null, motion_g: null, steps: null }
+  })
+  const window = { start, end: start + 6 * 3600_000 }
+  assert.strictEqual(rollupDay('2026-09-15', minutes, window).hrv_rmssd_ms, 45)
+  assert.strictEqual(rollupDay('2026-09-15', minutes, window, [{ start: start + 3600_000, end: start + 7200_000 }]).hrv_rmssd_ms, 70)
+})
+
 test('live step deltas are not summed into minutes', () => {
   const agg = new MinuteAggregator()
   agg.add({ type: 'steps', at: T0, count: 40, live: true })

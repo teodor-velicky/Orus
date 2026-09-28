@@ -9,6 +9,8 @@ import type { NutritionSummary } from '../../lib/meals'
 import type { DailyMetrics, SleepSession } from '../../lib/types'
 import type { EnergyDay } from '../../lib/energy'
 import type { HealthNote, Trend } from '../../lib/insights'
+import type { SleepNeed } from '../../lib/sleep'
+import type { StrainTarget } from '../../lib/strain'
 import { Card, Header, IconButton, Label, Screen, Stat, Tile } from '../ui'
 import { AreaChart, Bars, Donut, Gauge, Hypnogram, Legend, Progress, Sparkline, WeekStrip, StackBar } from '../charts'
 
@@ -19,7 +21,9 @@ export interface TodayModel {
   isMe: boolean
   week: { date: string; score: number | null }[]
   readiness: Readiness
-  sleep: { night?: SleepSession; score: number | null; targetMin: number }
+  sleep: { night?: SleepSession; score: number | null; targetMin: number; need?: SleepNeed | null; consistency?: number | null }
+  /** Day strain 0-21 and today's target band from readiness. */
+  strain: { value: number; activeMin: number; target: StrainTarget | null }
   nutrition: { summary: NutritionSummary; targets: { kcal: number; protein: number; carbs: number; fat: number; fiber: number }; runBonus?: number }
   metrics?: DailyMetrics
   trend: DailyMetrics[]
@@ -60,9 +64,10 @@ function insight(r: Readiness): { headline: string; body: string } {
   }
   const weakest = [...r.parts].sort((a, b) => a.score - b.score)[0]
   const why = weakest && weakest.score < 60 ? ` ${weakest.label}: ${weakest.detail}.` : ''
-  if (r.score >= 80) return { headline: 'Primed', body: `Recovery markers are strong — a good day to push.${why}` }
-  if (r.score >= 60) return { headline: 'Balanced', body: `Train as planned and keep intensity honest.${why}` }
-  if (r.score >= 40) return { headline: 'Strained', body: `Favour easy movement and an early night.${why}` }
+  // Same bands as WHOOP recovery: 67 and up green, 34-66 yellow, 33 and under red.
+  if (r.score >= 85) return { headline: 'Primed', body: `Everything lines up. A good day for your hardest session.${why}` }
+  if (r.score >= 67) return { headline: 'Recovered', body: `Your body is ready for real work today.${why}` }
+  if (r.score >= 34) return { headline: 'Hold steady', body: `Train as planned and keep the intensity honest.${why}` }
   return { headline: 'Recover', body: `Your body is asking for rest today.${why}` }
 }
 
@@ -172,11 +177,43 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
           footer={<Sparkline values={trend14.map(x => x.skin_temp_delta_c ?? null)} />} />
       </View>
 
+      {/* STRAIN */}
+      <Label>Strain</Label>
+      <Card onPress={h.onOpenTrain}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xl }}>
+          <Gauge value={(m.strain.value / 21) * 100} size={112} stroke={7} ticks={false} display={m.strain.value.toFixed(1)} label="of 21" />
+          <View style={{ flex: 1 }}>
+            {m.strain.target ? (
+              <>
+                <Text style={type.label}>Today's target</Text>
+                <Text style={[type.title, { marginTop: 2 }]}>{m.strain.target.label} · {m.strain.target.lo}–{m.strain.target.hi}</Text>
+                <View style={{ height: 8, borderRadius: 4, backgroundColor: alpha(0.06), marginTop: space.m, overflow: 'hidden' }}>
+                  <View style={{ position: 'absolute', left: `${(m.strain.target.lo / 21) * 100}%`, width: `${((m.strain.target.hi - m.strain.target.lo) / 21) * 100}%`, top: 0, bottom: 0, backgroundColor: alpha(0.18) }} />
+                  <View style={{ width: `${Math.min(100, (m.strain.value / 21) * 100)}%`, height: 8, borderRadius: 4, backgroundColor: color.text }} />
+                </View>
+                <Text style={[type.caption, { marginTop: space.s }]}>{m.strain.target.detail}</Text>
+              </>
+            ) : (
+              <Text style={type.sub}>Heart-rate load for the whole day, 0 to 21. Each point is harder to earn than the last.</Text>
+            )}
+            <Text style={[type.unit, { marginTop: space.s }]}>{m.strain.activeMin} MIN ABOVE 50% HR RESERVE</Text>
+          </View>
+        </View>
+      </Card>
+
       {/* SLEEP */}
       <Label>Sleep</Label>
       <Card onPress={h.onOpenSleep}>
         <View style={{ alignItems: 'center', marginBottom: space.l }}>
           <Stat value={night ? hm(night.asleep_min) : '—'} label={night ? `${clock(night.start_at)} – ${clock(night.end_at)}` : 'No sleep recorded'} size="m" />
+          {m.sleep.need ? (
+            <Text style={[type.caption, { textAlign: 'center', marginTop: space.s }]}>
+              Needed {hm(m.sleep.need.needMin)}: {hm(m.sleep.need.baselineMin)} baseline
+              {m.sleep.need.strainMin ? ` + ${m.sleep.need.strainMin}m strain` : ''}
+              {m.sleep.need.debtMin ? ` + ${m.sleep.need.debtMin}m debt` : ''}
+              {m.sleep.consistency != null ? ` · consistency ${m.sleep.consistency}%` : ''}
+            </Text>
+          ) : null}
         </View>
         {night ? <Hypnogram session={night} height={96} /> : null}
         {night && night.deep_min + night.rem_min > 0 ? (

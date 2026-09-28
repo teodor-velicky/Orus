@@ -6,6 +6,9 @@ import { mealsForDay, mealsInRange, summarize } from '../../lib/meals'
 import { energyForDay, EnergyMinute } from '../../lib/energy'
 import { healthNotes, weeklyTrends } from '../../lib/insights'
 import { ageOf } from '../../lib/run/training'
+import { sleepContext, strainFor } from '../../lib/daily'
+import { sleepConsistency, sleepNeed, SleepNeed } from '../../lib/sleep'
+import { strainTarget } from '../../lib/strain'
 import { sessionsRange, setVolume } from '../../lib/gym'
 import { lastHealthSync } from '../../lib/health'
 import { isFresh, useRing } from '../../lib/ring/live'
@@ -33,6 +36,9 @@ interface Raw {
   /** Meals for the last 14 days, for food quality trends and readiness. */
   recentMeals: MealLog[]
   minutes: EnergyMinute[]
+  /** Need and consistency for the night ending on the selected date. */
+  sleepNeed: SleepNeed | null
+  sleepConsistency: number | null
 }
 
 export default function Today() {
@@ -58,7 +64,15 @@ export default function Today() {
       mealsInRange(viewing.id, localIso(addDays(fromIso(date), -14)), date),
       ringMinutesForDay(viewing.id, date),
     ])
-    setRaw({ metrics, nights: pickNights(sleep, viewing.preferred_sleep_source), sessions, workouts, runs, lastSync, recentMeals, minutes })
+    const nights = pickNights(sleep, viewing.preferred_sleep_source)
+    const ctx = await sleepContext({
+      userId: viewing.id, night: date, nights, baselineMin: viewing.sleep_target_min,
+      sessions, runs, zs: zoneSettings(viewing, metrics, runs), sex: viewing.sex,
+    }).catch(() => null)
+    setRaw({
+      metrics, nights, sessions, workouts, runs, lastSync, recentMeals, minutes,
+      sleepNeed: ctx?.need ?? null, sleepConsistency: ctx?.consistency ?? null,
+    })
     setMeals(dayMeals)
   }, [viewing, date])
 
@@ -91,9 +105,20 @@ export default function Today() {
       return f && f.count >= 2 ? f.quality : null
     }
     const age = ageOf(viewing)
+    // Sleep is scored against need (baseline + strain + debt), like WHOOP. The
+    // selected night uses the full calculation; the week strip skips the strain
+    // part to avoid loading a week of minute data.
+    const needFor = (d: string) =>
+      d === date && raw.sleepNeed ? raw.sleepNeed.needMin
+        : sleepNeed({ baselineMin: target, night: d, previous: raw.nights }).needMin
     const readinessFor = (d: string) =>
-      readiness(nightFor(d), raw.metrics.filter(x => x.date <= d), target, d, loads.find(l => l.date === d),
-        { foodQuality: foodQualityBefore(d), age })
+      readiness(nightFor(d), raw.metrics.filter(x => x.date <= d), target, d, loads.find(l => l.date === d), {
+        foodQuality: foodQualityBefore(d), age,
+        sleepNeedMin: needFor(d),
+        sleepConsistency: d === date ? raw.sleepConsistency : sleepConsistency(raw.nights, d),
+      })
+    const dayReadiness = readinessFor(date)
+    const strain = strainFor({ date, minutes: raw.minutes, sessions: raw.sessions, runs: raw.runs, zs, sex: viewing.sex })
     const running = runEnergy(raw.runs, date, viewing)
     const baseTargets = macroTargets(viewing)
     const night = nightFor(date)
@@ -128,8 +153,18 @@ export default function Today() {
       title: isMe ? (isToday ? `${greeting()}, ${firstName(viewing)}` : 'Your day') : `${firstName(viewing)}'s day`,
       isMe,
       week: lastNDates(7).map(d => ({ date: d, score: readinessFor(d).score })),
-      readiness: readinessFor(date),
-      sleep: { night, score: night ? Math.min(100, Math.round((night.asleep_min / target) * 100)) : null, targetMin: target },
+      readiness: dayReadiness,
+      sleep: {
+        night,
+        score: night ? Math.min(100, Math.round((night.asleep_min / needFor(date)) * 100)) : null,
+        targetMin: target,
+        need: raw.sleepNeed,
+        consistency: raw.sleepConsistency,
+      },
+      strain: {
+        value: strain.strain, activeMin: strain.activeMin,
+        target: date === localIso() ? strainTarget(dayReadiness.score) : null,
+      },
       nutrition: {
         summary,
         // Running calories are partly added back — carbs absorb the extra energy.

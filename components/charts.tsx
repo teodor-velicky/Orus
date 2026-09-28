@@ -100,7 +100,11 @@ export function Gauge({
   const sweep = useSweep(value)
   const offset = sweep.interpolate({ inputRange: [0, 1], outputRange: [len, 0] })
   const big = size >= 140
-  const valueSize = size * (big ? 0.27 : 0.25)
+  // Scores are 2-3 characters; durations like "4h 32m" need to shrink to stay
+  // inside the ring. `adjustsFontSizeToFit` below catches anything left over.
+  const shown = display ?? (value == null ? '—' : String(Math.round(value)))
+  const valueSize = size * (big ? 0.27 : 0.25) * Math.min(1, 4.2 / Math.max(1, shown.length))
+  const innerWidth = (size - stroke * 2 - (ticks ? 10 : 0)) * 0.8
   return (
     <View style={{ alignItems: 'center' }}>
       <View style={{ width: size, height: size * 0.9, alignItems: 'center', justifyContent: 'center' }}>
@@ -130,8 +134,9 @@ export function Gauge({
         </Svg>
         <View style={{ alignItems: 'center', marginTop: size * 0.04 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-            <Text style={[type.hero, { fontSize: valueSize, lineHeight: valueSize * 1.1, letterSpacing: -valueSize * 0.04, color: value == null ? color.textFaint : color.text }]}>
-              {display ?? (value == null ? '—' : String(Math.round(value)))}
+            <Text numberOfLines={1} adjustsFontSizeToFit
+              style={[type.hero, { fontSize: valueSize, lineHeight: valueSize * 1.1, letterSpacing: -valueSize * 0.04, maxWidth: innerWidth, color: value == null ? color.textFaint : color.text }]}>
+              {shown}
             </Text>
             {unit ? <Text style={[type.unit, { fontSize: big ? 12 : 10 }]}>{unit}</Text> : null}
           </View>

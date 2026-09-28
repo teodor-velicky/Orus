@@ -2,6 +2,7 @@ import { Text, View } from 'react-native'
 import { color, space, type } from '../../lib/theme'
 import { avg, clock, fromIso, hm, prettyDate } from '../../lib/format'
 import type { SleepSession } from '../../lib/types'
+import type { SleepNeed } from '../../lib/sleep'
 import { Card, Chip, Empty, Header, Label, Screen, Stat } from '../ui'
 import { Bars, Donut, Gauge, Hypnogram, Legend } from '../charts'
 
@@ -12,6 +13,10 @@ export interface SleepModel {
   selected?: SleepSession
   sourcesForNight: string[]
   targetMin: number
+  /** Need for the selected night (baseline + strain + debt); null while loading. */
+  need?: SleepNeed | null
+  /** 0-100 bed/wake regularity over the 4 nights up to the selected one. */
+  consistency?: number | null
 }
 
 export interface SleepHandlers {
@@ -52,14 +57,35 @@ export function SleepView({ m, h }: { m: SleepModel; h: SleepHandlers }) {
         <>
           <Card>
             <View style={{ alignItems: 'center' }}>
-              <Gauge value={(night.asleep_min / m.targetMin) * 100} size={188} stroke={10}
+              <Gauge value={(night.asleep_min / (m.need?.needMin ?? m.targetMin)) * 100} size={188} stroke={10}
                 display={hm(night.asleep_min)} sub={`${clock(night.start_at)} – ${clock(night.end_at)}`} label="Asleep" />
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: space.xl }}>
-              <Stat value={`${Math.round((night.asleep_min / m.targetMin) * 100)}%`} label="of goal" size="s" />
-              <Stat value={`${Math.round((night.asleep_min / Math.max(1, night.in_bed_min)) * 100)}%`} label="Efficiency" size="s" />
-              <Stat value={hm(night.awake_min)} label="Awake" size="s" />
+            <View style={{ flexDirection: 'row', marginTop: space.xl }}>
+              {[
+                { v: `${Math.round((night.asleep_min / (m.need?.needMin ?? m.targetMin)) * 100)}%`, l: m.need ? 'of need' : 'of goal' },
+                { v: `${Math.round((night.asleep_min / Math.max(1, night.in_bed_min)) * 100)}%`, l: 'Efficiency' },
+                { v: m.consistency != null ? `${m.consistency}%` : '—', l: 'Consistency' },
+                { v: hm(night.awake_min), l: 'Awake' },
+              ].map(x => (
+                <View key={x.l} style={{ flex: 1, alignItems: 'center' }}>
+                  <Stat value={x.v} label={x.l} size="s" />
+                </View>
+              ))}
             </View>
+            {m.need ? (
+              <View style={{ marginTop: space.l, padding: space.m, borderRadius: 14, backgroundColor: color.inset }}>
+                <Text style={[type.caption, { textAlign: 'center', color: color.textSecondary }]}>
+                  You needed <Text style={{ color: color.text }}>{hm(m.need.needMin)}</Text>: {hm(m.need.baselineMin)} baseline
+                  {m.need.strainMin ? ` + ${m.need.strainMin}m for yesterday's strain` : ''}
+                  {m.need.debtMin ? ` + ${m.need.debtMin}m of sleep debt` : ''}.
+                </Text>
+                {m.need.weekShortfallMin > 60 ? (
+                  <Text style={[type.caption, { textAlign: 'center', marginTop: 4 }]}>
+                    {hm(m.need.weekShortfallMin)} short over the last week; a third of it is added back each night until it's repaid.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </Card>
 
           <Label>Stages</Label>

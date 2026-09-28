@@ -308,6 +308,19 @@ All three are pure TypeScript in `lib/` with tests in `lib/__tests__/health.test
 * **Energy** (`lib/energy.ts`): basal burn from Mifflin-St Jeor, prorated through the day, plus activity per 15-minute window from whichever saw more: ring heart rate above resting (Keytel) or ring steps. Taking the larger rather than the sum stops a run being counted twice.
 * **This week** (`lib/insights.ts`): the last 7 days against the 7 before for resting HR, HRV, sleep, steps and food quality, plus up to three notes from fixed thresholds, concerns first.
 
+### Ideas taken from WHOOP
+
+WHOOP publishes the shape of its models, though not the constants. Orus adopts the parts its data supports (`lib/sleep.ts`, `lib/strain.ts`, tests in `lib/__tests__/whoop.test.ts`):
+
+* **Sleep need = baseline + strain + debt.** Strain above 8 adds 6 minutes per point (up to an hour at 18); 30 % of the last 7 nights' shortfall comes back tonight, capped at 90 minutes. Sleep is scored against need, not a fixed target. Naps aren't detected yet.
+* **Sleep consistency.** Mean bed and wake time drift across 4 nights, 0-100: about 8 points per 30 minutes of drift, 17 per hour.
+* **Sleep score** like WHOOP's Sleep Performance: hours vs need 55 %, deep + REM share 20 %, consistency 15 %, efficiency 10 %.
+* **HRV from deep sleep.** Nightly HRV uses readings that overlap the ring's deep-sleep periods when there are at least two, the steadiest part of the night; otherwise the whole night.
+* **Day strain 0-21.** Banister TRIMP over the whole day from ring heart rate, counting only time above 30 % of heart-rate reserve so a desk day stays near 0, plus strength sessions and workouts the ring didn't see. Log curve: an easy hour's run is about 12, a very hard day about 19.5.
+* **Strain target** from readiness, on WHOOP's bands: 67+ push 14-18, 34-66 maintain 10-14, under 34 restore 0-10.
+
+Not adopted: respiratory rate (the ring doesn't report it) and the stress monitor (needs daytime HRV the ring only samples every 30 minutes).
+
 ### Steps
 
 Apple Health steps win when present; ring steps fill in otherwise. A ring counts hand movement, so its total runs higher than a phone's. Ring steps come only from the quarter-hour history slots: live step notifications are display only, since summing both double counted every step taken while the app was open.

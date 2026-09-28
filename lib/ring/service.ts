@@ -455,7 +455,7 @@ async function rollup(userId: string, deviceName: string, date: string): Promise
   const [{ data: rows }, { data: night }] = await Promise.all([
     supabase.from('ring_minutes').select('minute, hr_avg, hr_min, hr_max, hrv_ms, skin_temp_c, spo2_pct, motion_g, steps')
       .eq('user_id', userId).gte('minute', from.toISOString()).lt('minute', to.toISOString()).limit(5000),
-    supabase.from('sleep_sessions').select('start_at, end_at')
+    supabase.from('sleep_sessions').select('start_at, end_at, stages')
       .eq('user_id', userId).eq('night', date).eq('source', deviceName).maybeSingle(),
   ])
   const window = night ? { start: new Date(night.start_at).getTime(), end: new Date(night.end_at).getTime() } : undefined
@@ -465,7 +465,13 @@ async function rollup(userId: string, deviceName: string, date: string): Promise
   })
   if (!relevant.length) return
 
-  const day = rollupDay(date, relevant, window)
+  // Deep-sleep periods, for HRV measured when it's steadiest.
+  const deep = night && window
+    ? ((night.stages ?? []) as { v: string; s: number; d: number }[])
+        .filter(st => st.v === 'deep')
+        .map(st => ({ start: window.start + st.s * 60_000, end: window.start + (st.s + st.d) * 60_000 }))
+    : []
+  const day = rollupDay(date, relevant, window, deep)
   const { sleep_minutes_with_hr: _unused, ...values } = day
   const { error } = await supabase.from('ring_daily').upsert(
     { ...values, user_id: userId, source: deviceName, updated_at: new Date().toISOString() },

@@ -159,6 +159,8 @@ export function rollupDay(
   date: string,
   minutes: MinuteRow[],
   sleepWindow?: { start: number; end: number },
+  /** Deep-sleep periods of that night, from the ring's sleep stages. */
+  deepWindows: { start: number; end: number }[] = [],
 ): RingDay {
   const inSleep = (m: MinuteRow) => {
     if (!sleepWindow) return false
@@ -191,7 +193,18 @@ export function rollupDay(
   }
 
   const pick = <T,>(sleepVals: T[], allVals: T[]) => (sleepVals.length ? sleepVals : allVals)
-  const hrvVals = pick(sleepMin, minutes).map(m => m.hrv_ms).filter((v): v is number => v != null)
+  // HRV is steadiest in deep sleep: no movement, no dreaming, parasympathetic
+  // tone at its clearest. WHOOP weights its nightly HRV toward slow-wave sleep
+  // for the same reason. A reading counts if its 30-minute slot overlaps a
+  // deep period; with fewer than two, fall back to the whole night.
+  const inDeep = (m: MinuteRow) => {
+    const t = new Date(m.minute).getTime()
+    return deepWindows.some(w => t < w.end && t + 30 * 60_000 > w.start)
+  }
+  const deepHrv = minutes.filter(inDeep).map(m => m.hrv_ms).filter((v): v is number => v != null)
+  const hrvVals = deepHrv.length >= 2
+    ? deepHrv
+    : pick(sleepMin, minutes).map(m => m.hrv_ms).filter((v): v is number => v != null)
   // Skin temperature is only meaningful at night; daytime readings track the room.
   // Without a ring sleep session, use 00:00-06:00 local time for the date.
   const smallHours = (m: MinuteRow) => {

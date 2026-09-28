@@ -53,9 +53,11 @@ export default function Preview() {
     case 'food':
       return <FoodView m={demoFood(date)} h={{ onSelectDate: setDate, onLogMeal: noop, onOpenMeal: noop, onOpenSystem: noop }} />
     case 'sleep':
+    case 'sleep-short':
       return (
         <SleepView
-          m={{ isMe: true, eyebrow: 'Sleep', nights: demoNights, selected: demoNights.find(n => n.night === night), sourcesForNight: ['R09_1A2B', 'Connect'], targetMin: 480 }}
+          m={{ isMe: true, eyebrow: 'Sleep', nights: demoNights, selected: screen === 'sleep-short' ? { ...demoNights[demoNights.length - 1], asleep_min: 272, in_bed_min: 272, awake_min: 0, deep_min: 49, rem_min: 48, core_min: 175 } : demoNights.find(n => n.night === night), sourcesForNight: ['R09_1A2B', 'Connect'], targetMin: 480,
+            need: { needMin: 530, baselineMin: 480, strainMin: 24, debtMin: 26, weekShortfallMin: 86 }, consistency: 71 }}
           h={{ onBack: noop, onSelectNight: setNight, onPreferSource: noop }}
         />
       )
