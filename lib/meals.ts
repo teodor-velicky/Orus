@@ -89,6 +89,12 @@ export async function saveMeal(args: {
   return data.id
 }
 
+/** Delete by id (the log screen only knows the id of a meal it just saved). */
+export async function deleteMealById(id: string): Promise<void> {
+  const { data } = await supabase.from('meal_logs').select('id, photo_paths').eq('id', id).maybeSingle()
+  if (data) await deleteMeal(data as MealLog)
+}
+
 export async function deleteMeal(meal: MealLog): Promise<void> {
   if (meal.photo_paths.length) {
     await supabase.storage.from('meal-photos').remove(meal.photo_paths)

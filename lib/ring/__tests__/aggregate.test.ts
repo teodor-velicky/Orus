@@ -69,14 +69,45 @@ test('resting HR uses the lowest 30-min window during sleep', () => {
   assert.strictEqual(day.skin_temp_c, 34)
 })
 
-test('skin temp requires the sleep window', () => {
+test('skin temp ignores daytime readings; steps come from quarter-hour slots', () => {
+  // 30 minutes at 12:00 local on the 15th: daytime, so no nightly temperature.
+  const noon = new Date(2026, 8, 15, 12, 0, 0).getTime()
   const minutes: MinuteRow[] = Array.from({ length: 30 }, (_, i) => ({
-    minute: new Date(T0 + i * 60000).toISOString(), hr_avg: null, hr_min: null, hr_max: null,
+    minute: new Date(noon + i * 60000).toISOString(), hr_avg: null, hr_min: null, hr_max: null,
     hrv_ms: null, skin_temp_c: 31, spo2_pct: null, motion_g: null, steps: 10,
   }))
   const day = rollupDay('2026-09-15', minutes)
   assert.strictEqual(day.skin_temp_c, null)
-  assert.strictEqual(day.steps, 300)
+  // Only 12:00 and 12:15 are history slots; the rest are stale live deltas.
+  assert.strictEqual(day.steps, 20)
+})
+
+test('without a ring sleep session, skin temp uses the small hours', () => {
+  const start = new Date(2026, 8, 15, 1, 0, 0).getTime()
+  // History: one reading every 30 minutes, 01:00-03:00
+  const minutes: MinuteRow[] = Array.from({ length: 5 }, (_, i) => ({
+    minute: new Date(start + i * 30 * 60000).toISOString(), hr_avg: null, hr_min: null, hr_max: null,
+    hrv_ms: null, skin_temp_c: 34 + i * 0.1, spo2_pct: null, motion_g: null, steps: null,
+  }))
+  assert.strictEqual(rollupDay('2026-09-15', minutes).skin_temp_c, 34.2)
+})
+
+test('resting HR from the 5-minute ring log', () => {
+  // Overnight log: one sample every 5 minutes for 6 hours, calmest hour ~50 bpm
+  const start = new Date(2026, 8, 15, 0, 0, 0).getTime()
+  const minutes: MinuteRow[] = Array.from({ length: 72 }, (_, i) => {
+    const hr = i >= 30 && i < 42 ? 50 : 60
+    return { minute: new Date(start + i * 5 * 60000).toISOString(), hr_avg: hr, hr_min: hr, hr_max: hr, hrv_ms: null, skin_temp_c: null, spo2_pct: null, motion_g: null, steps: null }
+  })
+  assert.strictEqual(rollupDay('2026-09-15', minutes).resting_hr, 50)
+})
+
+test('live step deltas are not summed into minutes', () => {
+  const agg = new MinuteAggregator()
+  agg.add({ type: 'steps', at: T0, count: 40, live: true })
+  agg.add({ type: 'steps', at: T0, count: 25 })
+  const [row] = agg.drainMinutes(T0 + 120000)
+  assert.strictEqual(row.steps, 25)
 })
 
 test('temperature deviation vs median baseline', () => {

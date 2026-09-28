@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 import * as TaskManager from 'expo-task-manager'
 import { getRing, isFresh, subscribeRing } from '../ring/live'
-import { startLive, stopLive } from '../ring/service'
+import { requestLiveMode } from '../ring/service'
 import { GeoPoint, haversine, HrSample } from './geo'
 import { cue } from './cues'
 import { advance, initialStep, paceCue, paceStatus, progress, stepCue, StepState, Workout } from './workout'
@@ -189,7 +189,8 @@ let unsubRing: (() => void) | null = null
 function startHr() {
   const ring = getRing()
   if (ring.device && ring.status === 'connected') {
-    startLive('workout').then(() => patch({ ringLive: true })).catch(() => {})
+    requestLiveMode('workout')
+    patch({ ringLive: true })
   }
   unsubRing?.()
   unsubRing = subscribeRing(() => {
@@ -204,7 +205,7 @@ function startHr() {
 function stopHr() {
   unsubRing?.()
   unsubRing = null
-  if (state.ringLive) stopLive()
+  if (state.ringLive) requestLiveMode(null)
 }
 
 // ─── Controls ───

@@ -13,7 +13,7 @@ import { isHealthAvailable } from '../../lib/health'
 import { useRing } from '../../lib/ring/live'
 import { getGoal, recomputeZones, routePreviews, runsRange } from '../../lib/run/data'
 import { calendarActivities, loadSeries, prepareRuns, runningModel, TrainingData } from '../../lib/run/model'
-import { zoneSettings } from '../../lib/run/training'
+import { ageOf, zoneSettings } from '../../lib/run/training'
 import { activeSeconds, getRecorder, restoreRecording, useRecorder } from '../../lib/run/recorder'
 import type { Exercise, GymSession, MuscleGroup, SleepSession } from '../../lib/types'
 import { formatGymSub, TrainItem, TrainMode, TrainView } from '../../components/views/TrainView'
@@ -163,7 +163,7 @@ export default function Train() {
     if (!data || !viewing) return null
     const today = localIso()
     const series = loadSeries(data, today)
-    const r = readiness(nights.find(n => n.night === today), data.metrics, viewing.sleep_target_min, today, series[series.length - 1])
+    const r = readiness(nights.find(n => n.night === today), data.metrics, viewing.sleep_target_min, today, series[series.length - 1], { age: ageOf(viewing) })
     return runningModel(data, {
       isMe, readiness: r.score, previews,
       recording,

@@ -1,9 +1,9 @@
 // Read side for health data + the readiness score.
 
 import { supabase } from './supabase'
-import { addDays, avg, localIso } from './format'
+import { addDays, dayBounds, localIso } from './format'
+import type { EnergyMinute } from './energy'
 import { tempDeviation } from './ring/aggregate'
-import { formRatio, LoadDay } from './run/load'
 import type { DailyMetrics, SleepSession, Workout } from './types'
 
 interface RingDailyRow {
@@ -21,8 +21,8 @@ interface RingDailyRow {
 
 /**
  * Apple Health daily rows overlaid with ring rollups. The ring wins for
- * heart, HRV, SpO₂ and temperature (it's worn at night); steps take the
- * larger count since the phone and ring each miss some.
+ * heart, HRV, SpO₂ and temperature (it's worn at night); steps prefer the
+ * phone (Apple Health) and fall back to the ring.
  */
 export function mergeRingDays(userId: string, health: DailyMetrics[], ring: RingDailyRow[]): DailyMetrics[] {
   const byDate = new Map<string, DailyMetrics>()
@@ -44,13 +44,25 @@ export function mergeRingDays(userId: string, health: DailyMetrics[], ring: Ring
       hrv_ms: r.hrv_rmssd_ms ?? base.hrv_ms,
       hrv_kind: r.hrv_rmssd_ms != null ? 'rmssd' : base.hrv_kind,
       spo2_pct: r.spo2_pct ?? base.spo2_pct,
-      steps: Math.max(r.steps ?? 0, base.steps ?? 0) || null,
+      // A phone or watch counts steps better than a ring, which also counts
+      // hand movement (typing, gesturing, gym reps). Ring steps only fill in
+      // days with no Apple Health step count.
+      steps: base.steps ?? r.steps ?? null,
       skin_temp_c: r.skin_temp_c,
       skin_temp_delta_c: tempDeviation(r.skin_temp_c, prevTemps),
       sources: [...new Set([r.source, ...base.sources])],
     })
   })
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** Heart rate and steps per ring minute for one local day (energy estimate). */
+export async function ringMinutesForDay(userId: string, date: string): Promise<EnergyMinute[]> {
+  const { start, end } = dayBounds(date)
+  const { data } = await supabase.from('ring_minutes').select('minute, hr_avg, steps')
+    .eq('user_id', userId).gte('minute', start).lt('minute', end).order('minute').limit(5000)
+  return ((data ?? []) as { minute: string; hr_avg: number | string | null; steps: number | null }[])
+    .map(r => ({ minute: r.minute, hr_avg: r.hr_avg == null ? null : Number(r.hr_avg), steps: r.steps }))
 }
 
 export async function metricsRange(userId: string, days: number): Promise<DailyMetrics[]> {
@@ -113,91 +125,6 @@ export function dedupeWorkouts(ws: Workout[]): Workout[] {
 }
 
 // ─── Readiness ───
-
-export interface ReadinessPart {
-  key: 'sleep' | 'hrv' | 'rhr' | 'temp' | 'load'
-  label: string
-  score: number
-  weight: number
-  detail: string
-}
-
-export interface Readiness {
-  score: number | null
-  parts: ReadinessPart[]
-}
-
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x))
-const ramp = (v: number, zero: number, full: number) => Math.round(clamp01((v - zero) / (full - zero)) * 100)
-
-/**
- * Transparent, deterministic readiness: last night's sleep vs target, today's
- * HRV vs the 28-day baseline, resting HR vs baseline, skin temperature and
- * training load (runs + gym + workouts: form = fatigue vs fitness). Missing inputs drop out
- * and the remaining weights renormalize.
- */
-export function readiness(
-  lastNight: SleepSession | undefined,
-  metrics: DailyMetrics[],
-  sleepTargetMin: number,
-  today = localIso(),
-  /** Training load for `today` (see lib/run/load.ts). */
-  load?: LoadDay,
-): Readiness {
-  const parts: ReadinessPart[] = []
-
-  if (lastNight) {
-    const ratio = lastNight.asleep_min / sleepTargetMin
-    parts.push({
-      key: 'sleep', label: 'Sleep', weight: 0.4, score: ramp(ratio, 0.55, 1),
-      detail: `${Math.round(ratio * 100)}% of your ${Math.round(sleepTargetMin / 60)}h target`,
-    })
-  }
-
-  const todayRow = metrics.find(m => m.date === today)
-  const history = metrics.filter(m => m.date !== today)
-
-  // Only compare HRV measured the same way (ring RMSSD vs Apple SDNN).
-  const hrvHistory = history.filter(m => m.hrv_ms != null && m.hrv_kind === todayRow?.hrv_kind)
-  const hrvBase = avg(hrvHistory.map(m => m.hrv_ms))
-  if (todayRow?.hrv_ms && hrvBase && hrvHistory.length >= 5) {
-    const ratio = todayRow.hrv_ms / hrvBase
-    parts.push({
-      key: 'hrv', label: 'HRV', weight: 0.35, score: ramp(ratio, 0.75, 1.08),
-      detail: `${Math.round(todayRow.hrv_ms)} ms vs ${Math.round(hrvBase)} ms baseline`,
-    })
-  }
-
-  const rhrBase = avg(history.map(m => m.resting_hr))
-  if (todayRow?.resting_hr && rhrBase && history.filter(m => m.resting_hr).length >= 5) {
-    const diff = todayRow.resting_hr - rhrBase
-    parts.push({
-      key: 'rhr', label: 'Resting HR', weight: 0.25, score: ramp(-diff, -6, 1),
-      detail: `${Math.round(todayRow.resting_hr)} bpm, ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} vs baseline`,
-    })
-  }
-
-  // Skin temperature: deviations either way (fever, luteal phase, alcohol,
-  // late meals) reduce readiness; within ±0.3 °C is normal night-to-night noise.
-  const dt = todayRow?.skin_temp_delta_c
-  if (dt != null) {
-    parts.push({
-      key: 'temp', label: 'Skin temp', weight: 0.15, score: ramp(-Math.abs(dt), -1.2, -0.3),
-      detail: `${dt >= 0 ? '+' : ''}${dt.toFixed(2)} °C vs baseline`,
-    })
-  }
-
-  // Training load: form (TSB) relative to fitness (CTL). Carrying some fatigue
-  // is normal; a spike well above fitness lowers readiness.
-  const form = formRatio(load)
-  if (load && form != null) {
-    parts.push({
-      key: 'load', label: 'Training load', weight: 0.2, score: ramp(form, -0.6, -0.05),
-      detail: `form ${load.tsb >= 0 ? '+' : ''}${Math.round(load.tsb)} · fitness ${Math.round(load.ctl)}`,
-    })
-  }
-
-  if (!parts.length) return { score: null, parts }
-  const w = parts.reduce((a, p) => a + p.weight, 0)
-  return { score: Math.round(parts.reduce((a, p) => a + p.score * p.weight, 0) / w), parts }
-}
+// Lives in lib/readiness.ts (pure, tested); re-exported so callers keep one import.
+export { readiness, sleepScore } from './readiness'
+export type { Readiness, ReadinessPart, ReadinessExtra } from './readiness'

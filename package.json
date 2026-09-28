@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:engine": "bash supabase/functions/_shared/__tests__/run.sh",
     "test:ring": "bash lib/ring/__tests__/run.sh",
-    "test:run": "bash lib/run/__tests__/run.sh"
+    "test:run": "bash lib/run/__tests__/run.sh",
+    "test:health": "bash lib/__tests__/run.sh"
   },
   "dependencies": {
     "@expo-google-fonts/geist": "^0.4.2",

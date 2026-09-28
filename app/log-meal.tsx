@@ -1,13 +1,14 @@
 // Log a meal: photos (camera or library) and/or a description → one
-// whole-meal analysis → review → save. Ported from Somata's log flow, with
-// an explicit review step so a bad estimate never lands silently.
+// whole-meal analysis, saved straight away → review. The review keeps a
+// Delete button, so a bad estimate is one tap to undo rather than a step
+// you have to remember to confirm.
 import { useState } from 'react'
 import { Alert, Image } from 'react-native'
 import { useRouter } from 'expo-router'
 import * as ImagePicker from 'expo-image-picker'
 import * as Haptics from 'expo-haptics'
 import { useSession } from '../lib/session'
-import { analyzeMeal, mealTypeForNow, photoToBase64, saveMeal } from '../lib/meals'
+import { analyzeMeal, deleteMealById, mealTypeForNow, photoToBase64, saveMeal } from '../lib/meals'
 import { radius, space } from '../lib/theme'
 import { Button, Header, Screen, tap } from '../components/ui'
 import { MealAnalysisView } from '../components/MealAnalysisView'
@@ -21,8 +22,8 @@ export default function LogMeal() {
   const [photos, setPhotos] = useState<string[]>([])
   const [description, setDescription] = useState('')
   const [yesterday, setYesterday] = useState(false)
-  const [busy, setBusy] = useState<'analyzing' | 'saving' | null>(null)
-  const [result, setResult] = useState<{ analysis: MealAnalysis; base64: string[] } | null>(null)
+  const [busy, setBusy] = useState<'analyzing' | 'saving' | 'deleting' | null>(null)
+  const [result, setResult] = useState<{ analysis: MealAnalysis; base64: string[]; id: string | null } | null>(null)
 
   const addPhoto = async (camera: boolean) => {
     if (photos.length >= 4) return Alert.alert('Four photos max', 'Different angles of the same meal work best.')
@@ -38,47 +39,81 @@ export default function LogMeal() {
     setPhotos(p => [...p, ...res.assets.map(a => a.uri)].slice(0, 4))
   }
 
-  const analyze = async () => {
-    setBusy('analyzing')
+  const loggedAtNow = () => {
+    const at = new Date()
+    if (yesterday) {
+      at.setDate(at.getDate() - 1)
+      at.setHours({ breakfast: 8, lunch: 13, snack: 16, dinner: 19 }[mealType], 0, 0, 0)
+    }
+    return at
+  }
+
+  /** Save as soon as the analysis lands. A failed save leaves a Save button to retry. */
+  const persist = async (analysis: MealAnalysis, base64: string[]) => {
+    if (!me) return
+    setBusy('saving')
     try {
-      const base64 = await Promise.all(photos.map(photoToBase64))
-      const analysis = await analyzeMeal(base64, description)
+      const id = await saveMeal({ userId: me.id, mealType, analysis, photosBase64: base64, note: description, loggedAt: loggedAtNow() })
+      setResult({ analysis, base64, id })
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-      setResult({ analysis, base64 })
     } catch (e) {
-      Alert.alert('Analysis failed', (e as Error).message)
+      Alert.alert('Could not save', `${(e as Error).message}\n\nThe analysis is still here, tap Save to try again.`)
     } finally {
       setBusy(null)
     }
   }
 
-  const save = async () => {
-    if (!me || !result) return
-    setBusy('saving')
+  const analyze = async () => {
+    setBusy('analyzing')
+    let analysis: MealAnalysis
+    let base64: string[]
     try {
-      const loggedAt = new Date()
-      if (yesterday) {
-        loggedAt.setDate(loggedAt.getDate() - 1)
-        loggedAt.setHours({ breakfast: 8, lunch: 13, snack: 16, dinner: 19 }[mealType], 0, 0, 0)
-      }
-      await saveMeal({ userId: me.id, mealType, analysis: result.analysis, photosBase64: result.base64, note: description, loggedAt })
-      router.back()
+      base64 = await Promise.all(photos.map(photoToBase64))
+      analysis = await analyzeMeal(base64, description)
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message)
+      Alert.alert('Analysis failed', (e as Error).message)
       setBusy(null)
+      return
     }
+    setResult({ analysis, base64, id: null })
+    await persist(analysis, base64)
+  }
+
+  const remove = () => {
+    if (!result?.id) return setResult(null)
+    Alert.alert('Delete this meal?', 'It was already saved; this removes it.', [
+      { text: 'Keep', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        setBusy('deleting')
+        try {
+          await deleteMealById(result.id!)
+          setResult(null)
+        } catch (e) {
+          Alert.alert('Could not delete', (e as Error).message)
+        } finally {
+          setBusy(null)
+        }
+      } },
+    ])
   }
 
   if (result) {
     return (
       <Screen edges={['top', 'bottom']} bottomInset={space.xxxl}>
-        <Header eyebrow="Review" title={result.analysis.foodName} onBack={() => setResult(null)} />
+        <Header eyebrow={result.id ? 'Saved' : busy === 'saving' ? 'Saving…' : 'Not saved'} title={result.analysis.foodName}
+          onBack={() => (result.id ? router.back() : setResult(null))} />
         {photos[0] ? (
           <Image source={{ uri: photos[0] }} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: radius.l, marginBottom: space.m }} />
         ) : null}
         <MealAnalysisView analysis={result.analysis} sex={me?.sex} />
-        <Button label="Save meal" icon="checkmark" onPress={save} loading={busy === 'saving'} style={{ marginTop: space.xl }} />
-        <Button label="Discard" variant="ghost" onPress={() => setResult(null)} style={{ marginTop: space.s }} />
+        {result.id ? (
+          <Button label="Done" icon="checkmark" onPress={() => router.back()} style={{ marginTop: space.xl }} />
+        ) : (
+          <Button label="Save meal" icon="checkmark" onPress={() => persist(result.analysis, result.base64)}
+            loading={busy === 'saving'} style={{ marginTop: space.xl }} />
+        )}
+        <Button label={result.id ? 'Delete meal' : 'Discard'} variant="ghost" onPress={remove}
+          loading={busy === 'deleting'} style={{ marginTop: space.s }} />
       </Screen>
     )
   }

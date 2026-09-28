@@ -19,7 +19,8 @@ export type RingEvent =
   /** One or more accelerometer samples in g; `at` is the first sample's time. */
   | { type: 'accel'; at: number; hz: number; samples: [number, number, number][] }
   /** Steps taken since the previous steps event (not a daily total). */
-  | { type: 'steps'; at: number; count: number }
+  /** `live`: from the running total while connected. Display only, never summed — the ring's quarter-hour history already contains these steps. */
+  | { type: 'steps'; at: number; count: number; live?: boolean }
   /** A contiguous stage segment from the ring's sleep log. */
   | { type: 'sleep_segment'; start: number; end: number; stage: Exclude<SleepStage, 'in_bed'> }
   | { type: 'battery'; at: number; pct: number; charging: boolean }

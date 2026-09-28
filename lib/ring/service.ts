@@ -89,6 +89,7 @@ export async function initRing(): Promise<void> {
   AppState.addEventListener('change', s => {
     if (s === 'active' && wantConnected && getRing().status !== 'connected') connect().catch(() => {})
     if (s !== 'active') flush(true).catch(() => {})
+    applyLive()
   })
 }
 
@@ -156,6 +157,7 @@ async function adopt(d: Device): Promise<void> {
   subs.push(m.onDeviceDisconnected(d.id, () => onDisconnected()))
   patchRing({ device: { id: d.id, name: d.name ?? getRing().device?.name ?? 'Ring' }, status: 'connected' })
   startPing()
+  applyLive()
   if (!flushTimer) flushTimer = setInterval(() => { flush().catch(() => {}) }, 60_000)
 }
 
@@ -186,6 +188,7 @@ async function connect(): Promise<void> {
     startPing()
     await send(decoder.onConnect(new Date()))
     await syncHistory()
+    applyLive()
   } catch (e) {
     patchRing({ status: 'disconnected', error: (e as Error).message })
     scheduleReconnect()
@@ -210,6 +213,7 @@ function onDisconnected() {
   subs = []
   device = null
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null }
+  currentMode = null
   patchRing({ status: getRing().device ? 'disconnected' : 'unpaired', live: false })
   flush(true).catch(() => {})
   scheduleReconnect()
@@ -260,8 +264,34 @@ async function send(packets: { channel: string; bytes: Uint8Array }[]): Promise<
 // ─── Live streaming ───
 
 /** 'workout' streams heart rate only (runs); 'vitals' rotates HR / temp / HRV / SpO₂. */
-export async function startLive(mode: 'vitals' | 'workout' = 'vitals'): Promise<void> {
+// ─── Live mode ───
+//
+// While Orus is open and the ring is connected, it streams heartbeats so the
+// heart rate is live on every screen. The Ring screen asks for the full vitals
+// rotation (adds temperature and SpO₂); a run asks for beats only. When the
+// app goes to the background streaming stops, since it costs ring battery.
+
+type LiveMode = 'vitals' | 'workout'
+let requested: LiveMode | null = null
+let currentMode: LiveMode | null = null
+
+/** A screen asks for a mode; null hands control back to the default (beats). */
+export function requestLiveMode(mode: LiveMode | null): void {
+  requested = mode
+  applyLive()
+}
+
+function applyLive(): void {
+  const want: LiveMode | null =
+    getRing().status === 'connected' && device && AppState.currentState === 'active' ? requested ?? 'workout' : null
+  if (want === currentMode) return
+  if (want) startLive(want).catch(() => {})
+  else stopLive()
+}
+
+async function startLive(mode: LiveMode): Promise<void> {
   if (!device) return
+  currentMode = mode
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null; await send(decoder.liveStop()).catch(() => {}) }
   liveRr = []
   await send(decoder.liveStart(mode))
@@ -269,7 +299,8 @@ export async function startLive(mode: 'vitals' | 'workout' = 'vitals'): Promise<
   patchRing({ live: true })
 }
 
-export function stopLive(): void {
+function stopLive(): void {
+  currentMode = null
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null }
   if (device) send(decoder.liveStop()).catch(() => {})
   patchRing({ live: false })
@@ -423,7 +454,7 @@ async function rollup(userId: string, deviceName: string, date: string): Promise
 
   const [{ data: rows }, { data: night }] = await Promise.all([
     supabase.from('ring_minutes').select('minute, hr_avg, hr_min, hr_max, hrv_ms, skin_temp_c, spo2_pct, motion_g, steps')
-      .eq('user_id', userId).gte('minute', from.toISOString()).lt('minute', to.toISOString()).limit(2000),
+      .eq('user_id', userId).gte('minute', from.toISOString()).lt('minute', to.toISOString()).limit(5000),
     supabase.from('sleep_sessions').select('start_at, end_at')
       .eq('user_id', userId).eq('night', date).eq('source', deviceName).maybeSingle(),
   ])

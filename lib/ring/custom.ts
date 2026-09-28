@@ -461,7 +461,7 @@ function decodeUart(b: Uint8Array, at: number): RingEvent[] | null {
         const total = (b[2] << 16) | (b[3] << 8) | b[4]
         const prev = lastLiveSteps
         lastLiveSteps = total
-        return prev !== null && total > prev ? [{ type: 'steps', at, count: total - prev }] : []
+        return prev !== null && total > prev ? [{ type: 'steps', at, count: total - prev, live: true }] : []
       }
       if (b[1] === 0x0c) return [{ type: 'battery', at, pct: b[2], charging: b[3] === 1 }]
       // 0x01 / 0x03 / 0x04: new HR / SpO₂ / steps data available on the ring.

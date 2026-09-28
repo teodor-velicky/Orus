@@ -93,6 +93,20 @@ export function demoToday(): TodayModel {
     sources: ['R09_1A2B', 'iPhone', 'Connect'],
     syncedText: '2m ago',
     ring: { name: 'R09_1A2B', connected: true, battery: 64, liveHr: 58 },
+    heart: { live: 58, resting: 51 },
+    skin: { delta: 0.1, nightly: 34.3, live: null, nightsToBaseline: 1 },
+    energy: { bmr: 1788, basal: 1043, active: 612, total: 1655, fromHr: 410, fromSteps: 380, hrCoverage: 0.8, steps: 11840, eaten: 1430 },
+    trends: [
+      { key: 'rhr', label: 'Resting HR', current: 51.4, previous: 53.1, delta: -1.7, better: true, text: '51 bpm', deltaText: '−2 bpm' },
+      { key: 'hrv', label: 'HRV', current: 57, previous: 52, delta: 5, better: true, text: '57 ms', deltaText: '+5 ms' },
+      { key: 'sleep', label: 'Sleep', current: 421, previous: 452, delta: -31, better: false, text: '7h 01m', deltaText: '−31m' },
+      { key: 'steps', label: 'Steps', current: 9120, previous: 8410, delta: 710, better: true, text: '9,120', deltaText: '+0.7k' },
+      { key: 'food', label: 'Food quality', current: 78, previous: 71, delta: 7, better: true, text: '78', deltaText: '+7' },
+    ],
+    notes: [
+      { tone: 'good', text: 'HRV is up 10% on last week with resting heart rate steady or lower. You are recovering well.' },
+      { tone: 'good', text: 'Food quality is averaging 78 this week. Keep the variety up.' },
+    ],
   }
 }
 

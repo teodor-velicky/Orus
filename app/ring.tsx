@@ -3,7 +3,7 @@ import { Alert, Animated, Easing, Pressable, ScrollView, Share, Text, View } fro
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSession } from '../lib/session'
 import { clearLog, isFresh, useRing } from '../lib/ring/live'
-import { forget, pair, scan, setSharing, startLive, stopLive, syncHistory } from '../lib/ring/service'
+import { forget, pair, requestLiveMode, scan, setSharing, syncHistory } from '../lib/ring/service'
 import { timeAgo } from '../lib/format'
 import { color, font, radius, space, type } from '../lib/theme'
 import { Button, Card, Empty, Header, Label, Screen, Segmented, Stat, tap } from '../components/ui'
@@ -46,11 +46,12 @@ export default function RingScreen() {
   const [found, setFound] = useState<{ id: string; name: string; rssi: number | null }[]>([])
   const stopScan = useRef<(() => void) | null>(null)
 
-  // Stream live data only while this screen is visible.
+  // This screen adds temperature and SpO₂ to the rotation; elsewhere the ring
+  // streams heartbeats only.
   useFocusEffect(useCallback(() => {
-    if (ring.status === 'connected') startLive().catch(() => {})
-    return () => stopLive()
-  }, [ring.status]))
+    requestLiveMode('vitals')
+    return () => requestLiveMode(null)
+  }, []))
 
   useEffect(() => () => stopScan.current?.(), [])
 

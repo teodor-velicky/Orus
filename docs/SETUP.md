@@ -300,6 +300,18 @@ A native widget would need an app extension and an App Group, and App Groups nee
 
 The link carries a 64-character token that maps to one user and reads only that user’s heart-rate numbers through the `widget` edge function (service role, no session). **New link** rotates it and **Off** revokes it. iOS decides how often lock screen widgets refresh, usually every few minutes, and the script caches the last reading so a dropped connection shows a greyed number rather than an empty widget.
 
+## Readiness, energy and the weekly overview
+
+All three are pure TypeScript in `lib/` with tests in `lib/__tests__/health.test.ts` (`npm run test:health`).
+
+* **Readiness** (`lib/readiness.ts`): sleep 30 % (duration, efficiency, deep + REM share), HRV 25 %, resting HR 15 %, skin temperature 10 %, yesterday's food quality 10 %, training load 10 %. Until there are five nights of ring history, HRV is scored against a typical value for your age and resting HR against a general healthy range, each at half weight and labelled "calibrating". Apple Health SDNN is never compared with the RMSSD norm.
+* **Energy** (`lib/energy.ts`): basal burn from Mifflin-St Jeor, prorated through the day, plus activity per 15-minute window from whichever saw more: ring heart rate above resting (Keytel) or ring steps. Taking the larger rather than the sum stops a run being counted twice.
+* **This week** (`lib/insights.ts`): the last 7 days against the 7 before for resting HR, HRV, sleep, steps and food quality, plus up to three notes from fixed thresholds, concerns first.
+
+### Steps
+
+Apple Health steps win when present; ring steps fill in otherwise. A ring counts hand movement, so its total runs higher than a phone's. Ring steps come only from the quarter-hour history slots: live step notifications are display only, since summing both double counted every step taken while the app was open.
+
 ## Development
 
 ```bash

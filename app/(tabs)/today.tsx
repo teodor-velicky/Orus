@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { firstName, useSession } from '../../lib/session'
-import { metricsRange, pickNights, readiness, sleepRange, workoutsRange } from '../../lib/metrics'
-import { mealsForDay, summarize } from '../../lib/meals'
+import { metricsRange, pickNights, readiness, ringMinutesForDay, sleepRange, workoutsRange } from '../../lib/metrics'
+import { mealsForDay, mealsInRange, summarize } from '../../lib/meals'
+import { energyForDay, EnergyMinute } from '../../lib/energy'
+import { healthNotes, weeklyTrends } from '../../lib/insights'
+import { ageOf } from '../../lib/run/training'
 import { sessionsRange, setVolume } from '../../lib/gym'
 import { lastHealthSync } from '../../lib/health'
 import { isFresh, useRing } from '../../lib/ring/live'
@@ -11,7 +14,7 @@ import { addDays, fromIso, lastNDates, localIso, timeAgo, weekdayShort } from '.
 import { runsRange } from '../../lib/run/data'
 import { fitnessSeries } from '../../lib/run/load'
 import { runEnergy, runDate, trainingEvents, zoneSettings } from '../../lib/run/training'
-import type { DailyMetrics, GymSession, GymSet, Run, SleepSession, Workout } from '../../lib/types'
+import type { DailyMetrics, GymSession, GymSet, MealLog, Run, SleepSession, Workout } from '../../lib/types'
 import { TodayModel, TodayView } from '../../components/views/TodayView'
 import { Loading, Screen } from '../../components/ui'
 
@@ -27,6 +30,9 @@ interface Raw {
   workouts: Workout[]
   runs: Run[]
   lastSync: string | null
+  /** Meals for the last 14 days, for food quality trends and readiness. */
+  recentMeals: MealLog[]
+  minutes: EnergyMinute[]
 }
 
 export default function Today() {
@@ -41,7 +47,7 @@ export default function Today() {
   const load = useCallback(async () => {
     if (!viewing) return
     // 90 days of training feed fitness / fatigue for the readiness load part.
-    const [metrics, sleep, sessions, workouts, runs, lastSync, dayMeals] = await Promise.all([
+    const [metrics, sleep, sessions, workouts, runs, lastSync, dayMeals, recentMeals, minutes] = await Promise.all([
       metricsRange(viewing.id, 35),
       sleepRange(viewing.id, 21),
       sessionsRange(viewing.id, 90),
@@ -49,71 +55,127 @@ export default function Today() {
       runsRange(viewing.id, 90),
       lastHealthSync(),
       mealsForDay(viewing.id, date),
+      mealsInRange(viewing.id, localIso(addDays(fromIso(date), -14)), date),
+      ringMinutesForDay(viewing.id, date),
     ])
-    setRaw({ metrics, nights: pickNights(sleep, viewing.preferred_sleep_source), sessions, workouts, runs, lastSync })
+    setRaw({ metrics, nights: pickNights(sleep, viewing.preferred_sleep_source), sessions, workouts, runs, lastSync, recentMeals, minutes })
     setMeals(dayMeals)
   }, [viewing, date])
 
   useFocusEffect(useCallback(() => { load().catch(console.warn) }, [load]))
 
-  if (!raw || !viewing) return <Screen><Loading /></Screen>
+  // Everything that depends only on loaded data is computed once per load,
+  // not on every heartbeat from the ring.
+  const base = useMemo(() => {
+    if (!raw || !viewing) return null
 
-  const target = viewing.sleep_target_min
-  const nightFor = (d: string) => raw.nights.find(n => n.night === d)
-  const zs = zoneSettings(viewing, raw.metrics, raw.runs)
-  const loads = fitnessSeries(
-    trainingEvents({ runs: raw.runs, sessions: raw.sessions, workouts: raw.workouts, zs, sex: viewing.sex }),
-    localIso(addDays(new Date(), -90)), localIso(),
-  )
-  const readinessFor = (d: string) =>
-    readiness(nightFor(d), raw.metrics.filter(x => x.date <= d), target, d, loads.find(l => l.date === d))
-  const running = runEnergy(raw.runs, date, viewing)
-  const baseTargets = macroTargets(viewing)
-  const night = nightFor(date)
+    const target = viewing.sleep_target_min
+    const nightFor = (d: string) => raw.nights.find(n => n.night === d)
+    const zs = zoneSettings(viewing, raw.metrics, raw.runs)
+    const loads = fitnessSeries(
+      trainingEvents({ runs: raw.runs, sessions: raw.sessions, workouts: raw.workouts, zs, sex: viewing.sex }),
+      localIso(addDays(new Date(), -90)), localIso(),
+    )
+    // Food quality per day, from the last two weeks of meals.
+    const mealsByDay = new Map<string, MealLog[]>()
+    for (const meal of raw.recentMeals) {
+      const d = localIso(new Date(meal.logged_at))
+      mealsByDay.set(d, [...(mealsByDay.get(d) ?? []), meal])
+    }
+    const foodByDay = [...mealsByDay.entries()].map(([d, list]) => ({ date: d, quality: summarize(list).quality, count: list.length }))
+      .filter((f): f is { date: string; quality: number; count: number } => f.quality != null)
+    // One snack isn't a day of eating: readiness only uses days with two or more meals.
+    const foodQualityBefore = (d: string) => {
+      const prev = localIso(addDays(fromIso(d), -1))
+      const f = foodByDay.find(x => x.date === prev)
+      return f && f.count >= 2 ? f.quality : null
+    }
+    const age = ageOf(viewing)
+    const readinessFor = (d: string) =>
+      readiness(nightFor(d), raw.metrics.filter(x => x.date <= d), target, d, loads.find(l => l.date === d),
+        { foodQuality: foodQualityBefore(d), age })
+    const running = runEnergy(raw.runs, date, viewing)
+    const baseTargets = macroTargets(viewing)
+    const night = nightFor(date)
 
-  // Training: the 7 days ending on the selected date.
-  const days = lastNDates(7, fromIso(date))
-  const dayVolumes = days.map(d => raw.sessions
-    .filter(s => localIso(new Date(s.started_at)) === d)
-    .reduce((a, s) => a + s.sets.filter(x => x.completed).reduce((b, x) => b + setVolume(x), 0), 0))
-  const inWindow = (iso: string) => days.includes(localIso(new Date(iso)))
+    // Training: the 7 days ending on the selected date.
+    const days = lastNDates(7, fromIso(date))
+    const dayVolumes = days.map(d => raw.sessions
+      .filter(s => localIso(new Date(s.started_at)) === d)
+      .reduce((a, s) => a + s.sets.filter(x => x.completed).reduce((b, x) => b + setVolume(x), 0), 0))
+    const inWindow = (iso: string) => days.includes(localIso(new Date(iso)))
 
-  const isToday = date === localIso()
+    const isToday = date === localIso()
+    const dayRow = raw.metrics.find(x => x.date === date)
+    const summary = summarize(meals)
+    const latestWeight = [...raw.metrics].reverse().find(x => x.weight_kg != null)?.weight_kg
+    const energy = raw.minutes.length || summary.kcal
+      ? {
+          ...energyForDay({
+            minutes: raw.minutes,
+            body: { weightKg: latestWeight ?? viewing.weight_kg, heightCm: viewing.height_cm, age, sex: viewing.sex },
+            restingHr: dayRow?.resting_hr ?? zs.restingHr,
+            dayStart: fromIso(date),
+          }),
+          eaten: Math.round(summary.kcal),
+        }
+      : null
+    const trends = weeklyTrends({ metrics: raw.metrics.filter(x => x.date <= date), nights: raw.nights, food: foodByDay, today: date })
+    const nightsWithTemp = raw.metrics.filter(x => x.date < date && x.skin_temp_c != null).length
+    const model: Omit<TodayModel, 'ring' | 'heart' | 'skin'> = {
+      date,
+      eyebrow: fromIso(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+      title: isMe ? (isToday ? `${greeting()}, ${firstName(viewing)}` : 'Your day') : `${firstName(viewing)}'s day`,
+      isMe,
+      week: lastNDates(7).map(d => ({ date: d, score: readinessFor(d).score })),
+      readiness: readinessFor(date),
+      sleep: { night, score: night ? Math.min(100, Math.round((night.asleep_min / target) * 100)) : null, targetMin: target },
+      nutrition: {
+        summary,
+        // Running calories are partly added back — carbs absorb the extra energy.
+        targets: { ...baseTargets, kcal: baseTargets.kcal + running.bonus, carbs: baseTargets.carbs + Math.round(running.bonus / 4) },
+        runBonus: running.bonus,
+      },
+      metrics: raw.metrics.find(x => x.date === date),
+      trend: raw.metrics.filter(x => x.date <= date),
+      training: {
+        dayVolumes,
+        dayLabels: days.map(weekdayShort),
+        sessions: raw.sessions.filter(s => inWindow(s.started_at)).length,
+        volumeKg: dayVolumes.reduce((a, b) => a + b, 0),
+        workouts: raw.workouts.filter(w => inWindow(w.start_at) && !/run/i.test(w.activity)).length,
+        runs: raw.runs.filter(r => days.includes(runDate(r))).length,
+        runKm: raw.runs.filter(r => days.includes(runDate(r))).reduce((a, r) => a + r.distance_m, 0) / 1000,
+        dayLoads: days.map(d => loads.find(l => l.date === d)?.load ?? 0),
+        form: loads.find(l => l.date === date)?.tsb ?? null,
+      },
+      sources: [...new Set(raw.metrics.slice(-3).flatMap(x => x.sources))],
+      syncedText: isMe && raw.lastSync ? timeAgo(raw.lastSync) : undefined,
+      energy,
+      trends,
+      notes: healthNotes(trends, { sleepTargetMin: target }),
+    }
+    return { model, dayRow, isToday, nightsWithTemp }
+  }, [raw, viewing, date, meals, isMe])
+
+  if (!base || !viewing) return <Screen><Loading /></Screen>
+  const { dayRow, isToday, nightsWithTemp } = base
+  const liveHr = isMe && isFresh(ring.hr, 60_000) ? Math.round(ring.hr!.value) : null
   const model: TodayModel = {
-    date,
-    eyebrow: fromIso(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
-    title: isMe ? (isToday ? `${greeting()}, ${firstName(viewing)}` : 'Your day') : `${firstName(viewing)}'s day`,
-    isMe,
-    week: lastNDates(7).map(d => ({ date: d, score: readinessFor(d).score })),
-    readiness: readinessFor(date),
-    sleep: { night, score: night ? Math.min(100, Math.round((night.asleep_min / target) * 100)) : null, targetMin: target },
-    nutrition: {
-      summary: summarize(meals),
-      // Running calories are partly added back — carbs absorb the extra energy.
-      targets: { ...baseTargets, kcal: baseTargets.kcal + running.bonus, carbs: baseTargets.carbs + Math.round(running.bonus / 4) },
-      runBonus: running.bonus,
-    },
-    metrics: raw.metrics.find(x => x.date === date),
-    trend: raw.metrics.filter(x => x.date <= date),
-    training: {
-      dayVolumes,
-      dayLabels: days.map(weekdayShort),
-      sessions: raw.sessions.filter(s => inWindow(s.started_at)).length,
-      volumeKg: dayVolumes.reduce((a, b) => a + b, 0),
-      workouts: raw.workouts.filter(w => inWindow(w.start_at) && !/run/i.test(w.activity)).length,
-      runs: raw.runs.filter(r => days.includes(runDate(r))).length,
-      runKm: raw.runs.filter(r => days.includes(runDate(r))).reduce((a, r) => a + r.distance_m, 0) / 1000,
-      dayLoads: days.map(d => loads.find(l => l.date === d)?.load ?? 0),
-      form: loads.find(l => l.date === date)?.tsb ?? null,
-    },
-    sources: [...new Set(raw.metrics.slice(-3).flatMap(x => x.sources))],
-    syncedText: isMe && raw.lastSync ? timeAgo(raw.lastSync) : undefined,
+    ...base.model,
     ring: isMe && ring.device ? {
       name: ring.device.name,
       connected: ring.status === 'connected',
       battery: ring.battery?.pct,
-      liveHr: isFresh(ring.hr, 60_000) ? Math.round(ring.hr!.value) : undefined,
+      liveHr: liveHr ?? undefined,
     } : undefined,
+    heart: { live: isToday ? liveHr : null, resting: dayRow?.resting_hr ?? null },
+    skin: {
+      delta: dayRow?.skin_temp_delta_c ?? null,
+      nightly: dayRow?.skin_temp_c ?? null,
+      live: isToday && isMe && ring.skinTemp && isFresh(ring.skinTemp, 3 * 3600_000) ? ring.skinTemp.value : null,
+      nightsToBaseline: Math.max(1, 3 - nightsWithTemp),
+    },
   }
 
   return (

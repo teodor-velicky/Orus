@@ -132,7 +132,7 @@ test('history runs one request at a time and reports completion', () => {
 test('live step notifications become deltas', () => {
   custom.reset()
   assert.deepStrictEqual(custom.decode('uart', makePacket(0x73, [0x12, 0, 0x03, 0xe8]), 1), [])
-  assert.deepStrictEqual(custom.decode('uart', makePacket(0x73, [0x12, 0, 0x04, 0x00]), 2), [{ type: 'steps', at: 2, count: 24 }])
+  assert.deepStrictEqual(custom.decode('uart', makePacket(0x73, [0x12, 0, 0x04, 0x00]), 2), [{ type: 'steps', at: 2, count: 24, live: true }])
   custom.reset()
 })
 

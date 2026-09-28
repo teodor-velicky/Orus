@@ -58,6 +58,7 @@ jobs:
           npx tsc --noEmit
           bash lib/ring/__tests__/run.sh
           bash lib/run/__tests__/run.sh
+          bash lib/__tests__/run.sh
           bash supabase/functions/_shared/__tests__/run.sh
 
       - name: Generate native iOS project (installs CocoaPods)

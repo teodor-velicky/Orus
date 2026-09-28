@@ -9,7 +9,7 @@ import { mealsForDay, plantsThisWeek, summarize } from '../../lib/meals'
 import { sessionsRange, setVolume } from '../../lib/gym'
 import { addDays, avg, lastNDates, localIso, weekdayShort } from '../../lib/format'
 import { trainingSnapshot } from '../../lib/run/data'
-import { runDate } from '../../lib/run/training'
+import { ageOf, runDate } from '../../lib/run/training'
 import { color, font, space, type } from '../../lib/theme'
 import { Button, Card, Field, Header, Screen } from '../../components/ui'
 import { usePartnerVitals } from '../../lib/ring/share'
@@ -29,7 +29,7 @@ async function statsFor(p: Profile): Promise<PersonStats> {
   const t = metrics.find(m => m.date === today)
   const n = summarize(meals)
   return {
-    readiness: readiness(lastNight, metrics, p.sleep_target_min, today, training.loads[training.loads.length - 1]).score,
+    readiness: readiness(lastNight, metrics, p.sleep_target_min, today, training.loads[training.loads.length - 1], { age: ageOf(p) }).score,
     lastSleep: lastNight?.asleep_min ?? null,
     sleep7: avg(nights.slice(-7).map(x => x.asleep_min)),
     sleepNights: lastNDates(7).map(d => nights.find(x => x.night === d)?.asleep_min ?? null),

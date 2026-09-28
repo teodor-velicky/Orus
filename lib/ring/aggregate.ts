@@ -92,7 +92,8 @@ export class MinuteAggregator {
         return
       }
       case 'steps':
-        if (e.count > 0) this.bucket(e.at).steps += e.count
+        // Live deltas would double count: the history sync delivers the same steps.
+        if (e.count > 0 && !e.live) this.bucket(e.at).steps += e.count
         return
       case 'sleep_segment':
         if (e.end > e.start) this.sleep.push({ start: e.start, end: e.end, stage: e.stage })
@@ -138,6 +139,9 @@ export class MinuteAggregator {
 
 // ─── Daily rollup ───
 
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
 export interface RingDay {
   date: string
   resting_hr: number | null
@@ -166,16 +170,20 @@ export function rollupDay(
   const sleepHr = sleepMin.filter(m => m.hr_avg != null)
 
   // Resting HR = lowest 30-minute rolling mean, preferring the sleep window.
+  // The ring logs heart rate every 5 minutes, so a full 30-minute window holds
+  // about 6 samples; 4 (20 minutes of coverage) is enough to trust it. Live
+  // streaming fills every minute, which easily clears the same bar.
+  const MIN_WINDOW_SAMPLES = 4
   const lowestRolling = (rows: MinuteRow[]) => {
     const sorted = [...rows].sort((a, b) => a.minute.localeCompare(b.minute))
-    if (sorted.length < 10) return null
+    if (sorted.length < MIN_WINDOW_SAMPLES) return null
     let best: number | null = null
     let lo = 0
     for (let hi = 0; hi < sorted.length; hi++) {
       const tHi = new Date(sorted[hi].minute).getTime()
       while (tHi - new Date(sorted[lo].minute).getTime() >= 30 * 60000) lo++
       const win = sorted.slice(lo, hi + 1)
-      if (win.length < 10) continue
+      if (win.length < MIN_WINDOW_SAMPLES) continue
       const m = mean(win.map(w => w.hr_avg!))!
       best = best == null ? m : Math.min(best, m)
     }
@@ -185,10 +193,18 @@ export function rollupDay(
   const pick = <T,>(sleepVals: T[], allVals: T[]) => (sleepVals.length ? sleepVals : allVals)
   const hrvVals = pick(sleepMin, minutes).map(m => m.hrv_ms).filter((v): v is number => v != null)
   // Skin temperature is only meaningful at night; daytime readings track the room.
-  const tempVals = sleepMin.map(m => m.skin_temp_c).filter((v): v is number => v != null)
+  // Without a ring sleep session, use 00:00-06:00 local time for the date.
+  const smallHours = (m: MinuteRow) => {
+    const d = new Date(m.minute)
+    return localDate(d) === date && d.getHours() < 6
+  }
+  const nightMin = sleepWindow ? sleepMin : minutes.filter(smallHours)
+  const tempVals = nightMin.map(m => m.skin_temp_c).filter((v): v is number => v != null)
   const spo2Vals = sleepMin.map(m => m.spo2_pct).filter((v): v is number => v != null)
-  const rhr = lowestRolling(sleepHr.length >= 10 ? sleepHr : hrMinutes)
-  const steps = minutes.reduce((a, m) => a + (m.steps ?? 0), 0)
+  const rhr = lowestRolling(sleepHr.length >= MIN_WINDOW_SAMPLES ? sleepHr : hrMinutes)
+  const steps = minutes
+    .filter(m => new Date(m.minute).getMinutes() % 15 === 0)
+    .reduce((a, m) => a + (m.steps ?? 0), 0)
 
   return {
     date,
@@ -197,7 +213,7 @@ export function rollupDay(
     hr_min: hrMinutes.length ? Math.min(...hrMinutes.map(m => m.hr_min ?? m.hr_avg!)) : null,
     hr_max: hrMinutes.length ? Math.max(...hrMinutes.map(m => m.hr_max ?? m.hr_avg!)) : null,
     hrv_rmssd_ms: hrvVals.length ? round(mean(hrvVals)!, 1) : null,
-    skin_temp_c: tempVals.length >= 10 ? round(mean(tempVals)!, 2) : null,
+    skin_temp_c: tempVals.length >= 3 ? round(mean(tempVals)!, 2) : null,
     spo2_pct: spo2Vals.length ? round(mean(spo2Vals)!, 1) : null,
     steps: steps || null,
     sleep_minutes_with_hr: sleepHr.length,

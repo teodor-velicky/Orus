@@ -7,8 +7,10 @@ import { clock, hm, num } from '../../lib/format'
 import type { Readiness } from '../../lib/metrics'
 import type { NutritionSummary } from '../../lib/meals'
 import type { DailyMetrics, SleepSession } from '../../lib/types'
+import type { EnergyDay } from '../../lib/energy'
+import type { HealthNote, Trend } from '../../lib/insights'
 import { Card, Header, IconButton, Label, Screen, Stat, Tile } from '../ui'
-import { AreaChart, Bars, Donut, Gauge, Hypnogram, Legend, Progress, Sparkline, WeekStrip } from '../charts'
+import { AreaChart, Bars, Donut, Gauge, Hypnogram, Legend, Progress, Sparkline, WeekStrip, StackBar } from '../charts'
 
 export interface TodayModel {
   date: string
@@ -31,6 +33,13 @@ export interface TodayModel {
   sources: string[]
   syncedText?: string
   ring?: { name: string; connected: boolean; battery?: number; liveHr?: number }
+  /** Live heart rate when the ring is streaming, and last night's resting rate. */
+  heart: { live: number | null; resting: number | null }
+  /** Skin temperature: deviation once there's a baseline, otherwise last night or live. */
+  skin: { delta: number | null; nightly: number | null; live: number | null; nightsToBaseline: number }
+  energy: (EnergyDay & { eaten: number }) | null
+  trends: Trend[]
+  notes: HealthNote[]
 }
 
 export interface TodayHandlers {
@@ -121,12 +130,19 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
             {r.parts.map((p, i) => (
               <View key={p.key} style={{ marginBottom: i === r.parts.length - 1 ? 0 : space.m }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <Text style={[type.caption, { color: color.text, fontFamily: font.medium }]}>{p.label}</Text>
+                  <Text style={[type.caption, { color: color.text, fontFamily: font.medium }]}>
+                    {p.label}{p.provisional ? <Text style={{ color: color.textTertiary, fontFamily: font.regular }}> · calibrating</Text> : null}
+                  </Text>
                   <Text style={type.unit}>{p.detail}</Text>
                 </View>
                 <Progress pct={p.score} height={4} />
               </View>
             ))}
+            {r.calibratingNights > 0 ? (
+              <Text style={[type.caption, { textAlign: 'center', marginTop: space.m }]}>
+                {r.calibratingNights} more {r.calibratingNights === 1 ? 'night' : 'nights'} with the ring until HRV and resting HR use your own baseline.
+              </Text>
+            ) : null}
           </Card>
         ) : null}
       </Card>
@@ -134,18 +150,24 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
       {/* VITALS */}
       <Label>Vitals</Label>
       <View style={{ flexDirection: 'row', gap: space.m }}>
-        <Tile icon="heart-outline" label="Resting HR" value={num(m.metrics?.resting_hr)} unit="bpm" onPress={h.onOpenHeart}
+        <Tile icon={m.heart.live != null ? 'heart' : 'heart-outline'} label={m.heart.live != null ? 'Heart rate' : 'Resting HR'}
+          value={num(m.heart.live ?? m.heart.resting)} unit="bpm" onPress={h.onOpenHeart}
+          delta={m.heart.live != null ? (m.heart.resting != null ? `live · resting ${Math.round(m.heart.resting)}` : 'live') : m.heart.resting != null ? 'last night' : 'wear the ring overnight'}
           footer={<Sparkline values={trend14.map(x => x.resting_hr)} />} />
         <Tile icon="pulse-outline" label="HRV" value={num(m.metrics?.hrv_ms)} unit="ms" onPress={h.onOpenHeart}
           footer={<Sparkline values={trend14.map(x => (x.hrv_kind === m.metrics?.hrv_kind ? x.hrv_ms : null))} />} />
       </View>
       <View style={{ flexDirection: 'row', gap: space.m, marginTop: space.m }}>
         <Tile icon="footsteps-outline" label="Steps" value={num(m.metrics?.steps)}
-          delta={m.metrics?.active_kcal ? `${num(m.metrics.active_kcal)} active kcal` : undefined}
+          delta={m.energy?.active ? `${num(m.energy.active)} active kcal` : undefined}
           footer={<Bars values={trend14.slice(-7).map(x => x.steps)} height={28} target={8000} />} />
         <Tile icon="thermometer-outline" label="Skin temp"
-          value={m.metrics?.skin_temp_delta_c != null ? `${m.metrics.skin_temp_delta_c >= 0 ? '+' : ''}${m.metrics.skin_temp_delta_c.toFixed(1)}` : '—'}
-          unit="°C" delta={m.metrics?.skin_temp_c != null ? `${m.metrics.skin_temp_c.toFixed(1)} °C nightly` : 'vs 14-night baseline'}
+          value={m.skin.delta != null ? `${m.skin.delta >= 0 ? '+' : ''}${m.skin.delta.toFixed(1)}`
+            : m.skin.nightly != null ? m.skin.nightly.toFixed(1) : m.skin.live != null ? m.skin.live.toFixed(1) : '—'}
+          unit="°C"
+          delta={m.skin.delta != null ? `vs your usual · ${m.skin.nightly?.toFixed(1)} °C`
+            : m.skin.nightly != null ? `last night · baseline in ${m.skin.nightsToBaseline}`
+              : m.skin.live != null ? 'live · no night yet' : 'needs a night with the ring'}
           onPress={h.onOpenHeart}
           footer={<Sparkline values={trend14.map(x => x.skin_temp_delta_c ?? null)} />} />
       </View>
@@ -198,6 +220,77 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
           <Legend items={[{ label: 'Protein' }, { label: 'Carbs' }, { label: 'Fat' }]} />
         </View>
       </Card>
+
+      {/* ENERGY */}
+      {m.energy ? (
+        <>
+          <Label>Energy</Label>
+          <Card>
+            <View style={{ flexDirection: 'row' }}>
+              {[
+                { v: num(m.energy.total), l: 'Burned' },
+                { v: num(m.energy.eaten), l: 'Eaten' },
+                { v: `${m.energy.eaten - m.energy.total > 0 ? '+' : ''}${num(m.energy.eaten - m.energy.total)}`, l: 'Balance' },
+              ].map(x => (
+                <View key={x.l} style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={[type.number, { fontSize: 22 }]}>{x.v}</Text>
+                  <Text style={[type.label, { fontSize: 9, marginTop: 2 }]}>{x.l}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={{ marginTop: space.l }}>
+              <StackBar parts={[
+                { label: 'Resting', value: m.energy.basal },
+                { label: 'Heart rate', value: Math.max(0, m.energy.active - Math.min(m.energy.active, m.energy.fromSteps)) },
+                { label: 'Steps', value: Math.min(m.energy.active, m.energy.fromSteps) },
+              ]} height={10} />
+            </View>
+            <Text style={[type.caption, { textAlign: 'center', marginTop: space.m }]}>
+              Resting burn from your body stats, plus activity from ring heart rate and steps
+              {m.energy.hrCoverage < 0.5 ? '. Wear the ring more of the day for a closer figure.' : '.'}
+            </Text>
+          </Card>
+        </>
+      ) : null}
+
+      {/* THIS WEEK */}
+      {m.trends.some(t => t.current != null) ? (
+        <>
+          <Label>This week</Label>
+          <Card style={{ paddingVertical: space.s }}>
+            {m.trends.filter(t => t.current != null).map((t, i, all) => (
+              <View key={t.key} style={{
+                flexDirection: 'row', alignItems: 'center', paddingVertical: space.m,
+                borderBottomWidth: i === all.length - 1 ? 0 : 1, borderBottomColor: color.hairline,
+              }}>
+                <Text style={[type.caption, { flex: 1, color: color.text, fontFamily: font.medium }]}>{t.label}</Text>
+                <Text style={[type.data, { fontSize: 15, width: 90, textAlign: 'right' }]}>{t.text}</Text>
+                <View style={{ width: 86, alignItems: 'flex-end' }}>
+                  {t.deltaText ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      {t.better != null ? (
+                        <Ionicons name={t.better ? 'arrow-up-circle' : 'arrow-down-circle'} size={12}
+                          color={t.better ? color.text : color.textTertiary} />
+                      ) : null}
+                      <Text style={[type.unit, { color: t.better === true ? color.text : color.textTertiary }]}>{t.deltaText}</Text>
+                    </View>
+                  ) : <Text style={type.unit}>new</Text>}
+                </View>
+              </View>
+            ))}
+          </Card>
+          <Text style={[type.caption, { textAlign: 'center', marginTop: space.s }]}>Last 7 days vs the 7 before. Arrow up means better, whichever way the number moved.</Text>
+          {m.notes.map((n, i) => (
+            <Card key={i} inset style={{ marginTop: space.s }}>
+              <View style={{ flexDirection: 'row', gap: space.m }}>
+                <Ionicons name={n.tone === 'watch' ? 'alert-circle-outline' : n.tone === 'good' ? 'checkmark-circle-outline' : 'information-circle-outline'}
+                  size={16} color={n.tone === 'good' ? color.text : color.textSecondary} />
+                <Text style={[type.sub, { flex: 1, color: color.text }]}>{n.text}</Text>
+              </View>
+            </Card>
+          ))}
+        </>
+      ) : null}
 
       {/* TRAINING */}
       <Label>Training · 7 days</Label>
