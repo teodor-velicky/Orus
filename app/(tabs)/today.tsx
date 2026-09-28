@@ -7,6 +7,7 @@ import { energyForDay, EnergyMinute } from '../../lib/energy'
 import { healthNotes, weeklyTrends } from '../../lib/insights'
 import { ageOf } from '../../lib/run/training'
 import { sleepContext, strainFor } from '../../lib/daily'
+import { getEntry } from '../../lib/journalStore'
 import { sleepConsistency, sleepNeed, SleepNeed } from '../../lib/sleep'
 import { strainTarget } from '../../lib/strain'
 import { sessionsRange, setVolume } from '../../lib/gym'
@@ -39,6 +40,8 @@ interface Raw {
   /** Need and consistency for the night ending on the selected date. */
   sleepNeed: SleepNeed | null
   sleepConsistency: number | null
+  tonight: SleepNeed | null
+  journalDue: boolean
 }
 
 export default function Today() {
@@ -65,16 +68,30 @@ export default function Today() {
       ringMinutesForDay(viewing.id, date),
     ])
     const nights = pickNights(sleep, viewing.preferred_sleep_source)
-    const ctx = await sleepContext({
-      userId: viewing.id, night: date, nights, baselineMin: viewing.sleep_target_min,
-      sessions, runs, zs: zoneSettings(viewing, metrics, runs), sex: viewing.sex,
-    }).catch(() => null)
+    const zsNow = zoneSettings(viewing, metrics, runs)
+    const isTodaySelected = date === localIso()
+    const [ctx, tonight, yesterdayEntry] = await Promise.all([
+      sleepContext({
+        userId: viewing.id, night: date, nights, baselineMin: viewing.sleep_target_min,
+        sessions, runs, zs: zsNow, sex: viewing.sex,
+      }).catch(() => null),
+      // Tonight = the night ending tomorrow: today's strain and naps so far.
+      isTodaySelected
+        ? sleepContext({
+          userId: viewing.id, night: localIso(addDays(new Date(), 1)), nights, baselineMin: viewing.sleep_target_min,
+          sessions, runs, zs: zsNow, sex: viewing.sex,
+        }).catch(() => null)
+        : Promise.resolve(null),
+      isTodaySelected && isMe ? getEntry(viewing.id, localIso(addDays(new Date(), -1))).catch(() => null) : Promise.resolve({}),
+    ])
     setRaw({
       metrics, nights, sessions, workouts, runs, lastSync, recentMeals, minutes,
       sleepNeed: ctx?.need ?? null, sleepConsistency: ctx?.consistency ?? null,
+      tonight: tonight?.need ?? null,
+      journalDue: yesterdayEntry == null,
     })
     setMeals(dayMeals)
-  }, [viewing, date])
+  }, [viewing, date, isMe])
 
   useFocusEffect(useCallback(() => { load().catch(console.warn) }, [load]))
 
@@ -160,7 +177,9 @@ export default function Today() {
         targetMin: target,
         need: raw.sleepNeed,
         consistency: raw.sleepConsistency,
+        tonight: raw.tonight,
       },
+      journalDue: raw.journalDue,
       strain: {
         value: strain.strain, activeMin: strain.activeMin,
         target: date === localIso() ? strainTarget(dayReadiness.score) : null,
@@ -226,6 +245,7 @@ export default function Today() {
         onOpenFood: () => router.push('/food'),
         onOpenTrain: () => router.push('/train'),
         onOpenRing: () => router.push('/ring'),
+        onOpenJournal: () => router.push('/journal'),
       }}
     />
   )

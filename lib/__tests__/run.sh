@@ -6,7 +6,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/lib/run" "$TMP/lib/__tests__"
 cp "$ROOT/lib/format.ts" "$ROOT/lib/types.ts" "$ROOT/lib/nutrients.ts" \
-   "$ROOT/lib/readiness.ts" "$ROOT/lib/energy.ts" "$ROOT/lib/insights.ts" "$ROOT/lib/sleep.ts" "$ROOT/lib/strain.ts" "$TMP/lib/"
+   "$ROOT/lib/readiness.ts" "$ROOT/lib/energy.ts" "$ROOT/lib/insights.ts" "$ROOT/lib/sleep.ts" "$ROOT/lib/strain.ts" "$ROOT/lib/naps.ts" "$ROOT/lib/journal.ts" "$TMP/lib/"
 cp "$ROOT/lib/run/load.ts" "$TMP/lib/run/"
 cp "$ROOT/lib/__tests__/"*.test.ts "$TMP/lib/__tests__/"
 node "$ROOT/node_modules/typescript/bin/tsc" --ignoreConfig --module commonjs --target es2020 \

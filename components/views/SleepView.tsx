@@ -77,7 +77,8 @@ export function SleepView({ m, h }: { m: SleepModel; h: SleepHandlers }) {
                 <Text style={[type.caption, { textAlign: 'center', color: color.textSecondary }]}>
                   You needed <Text style={{ color: color.text }}>{hm(m.need.needMin)}</Text>: {hm(m.need.baselineMin)} baseline
                   {m.need.strainMin ? ` + ${m.need.strainMin}m for yesterday's strain` : ''}
-                  {m.need.debtMin ? ` + ${m.need.debtMin}m of sleep debt` : ''}.
+                  {m.need.debtMin ? ` + ${m.need.debtMin}m of sleep debt` : ''}
+                  {m.need.napMin ? ` − ${m.need.napMin}m you napped` : ''}.
                 </Text>
                 {m.need.weekShortfallMin > 60 ? (
                   <Text style={[type.caption, { textAlign: 'center', marginTop: 4 }]}>

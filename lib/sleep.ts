@@ -7,7 +7,7 @@
 //   debt      30 % of the last 7 nights' shortfall against baseline is added
 //             back tonight, capped at 90 min, so one bad week doesn't turn
 //             into an impossible 11-hour target
-// Orus doesn't detect naps yet, so they don't reduce need.
+//   naps      minus the time napped since the last wake-up (lib/naps.ts)
 //
 // Consistency compares bed and wake times over the last 4 nights: the mean
 // drift between consecutive nights, turned into 0-100 (30 min drift ≈ 92,
@@ -20,6 +20,7 @@ export interface SleepNeed {
   baselineMin: number
   strainMin: number
   debtMin: number
+  napMin: number
   /** Total shortfall over the last 7 nights. */
   weekShortfallMin: number
 }
@@ -42,6 +43,8 @@ export function sleepNeed(o: {
   previous: SleepSession[]
   /** Strain of the day before the night. */
   strain?: number | null
+  /** Minutes napped before this night (lib/naps.ts napCreditMin). */
+  napMin?: number
 }): SleepNeed {
   const before = o.previous
     .filter(n => n.night < o.night)
@@ -50,8 +53,11 @@ export function sleepNeed(o: {
   const weekShortfallMin = before.reduce((a, n) => a + Math.max(0, o.baselineMin - n.asleep_min), 0)
   const debtMin = Math.round(Math.min(DEBT_CAP_MIN, weekShortfallMin * DEBT_SHARE))
   const strainMin = strainSleepMin(o.strain)
+  const napMin = Math.max(0, Math.round(o.napMin ?? 0))
   return {
-    needMin: o.baselineMin + strainMin + debtMin,
+    // A nap never takes need below two-thirds of baseline.
+    needMin: Math.max(Math.round(o.baselineMin * 0.67), o.baselineMin + strainMin + debtMin - napMin),
+    napMin,
     baselineMin: o.baselineMin,
     strainMin,
     debtMin,

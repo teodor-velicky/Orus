@@ -35,6 +35,8 @@ export default function Add() {
     { icon: 'camera-outline', title: 'Log a meal', sub: 'Photo or description', onPress: () => { router.dismiss(); router.push('/log-meal') } },
     { icon: 'navigate-outline', title: 'Record a run', sub: 'GPS + ring heart rate', onPress: () => { router.dismiss(); router.push('/run/record') } },
     { icon: 'barbell-outline', title: 'Gym session', sub: 'Sets, reps, weight', onPress: workout },
+    { icon: 'book-outline', title: 'Journal', sub: 'Alcohol, caffeine, stress…', onPress: () => { router.dismiss(); router.push('/journal') } },
+    { icon: 'moon-outline', title: 'Log a nap', sub: 'Lowers tonight\'s sleep need', onPress: () => { router.dismiss(); router.push('/nap') } },
     { icon: 'pulse-outline', title: 'How do you feel', sub: 'Gut & energy check-in', onPress: () => { router.dismiss(); router.push('/symptoms') } },
   ]
 

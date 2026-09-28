@@ -17,6 +17,9 @@ import { RunDetailView } from '../components/views/RunDetailView'
 import { RunRecordView } from '../components/views/RunRecordView'
 import { RunGoalView } from '../components/views/RunGoalView'
 import { TemplateView } from '../components/views/TemplateView'
+import { JournalView } from '../components/views/JournalView'
+import { NapView } from '../components/views/NapView'
+import { MANUAL_BEHAVIORS, type Answers } from '../lib/journal'
 import type { TrainMode } from '../components/views/TrainView'
 import { summarize } from '../lib/meals'
 import { SettingsView } from '../components/views/SettingsView'
@@ -47,7 +50,7 @@ export default function Preview() {
       return (
         <TodayView
           m={{ ...demoToday(), date }}
-          h={{ onSelectDate: setDate, onOpenSettings: noop, onOpenSleep: noop, onOpenHeart: noop, onOpenFood: noop, onOpenTrain: noop, onOpenRing: noop }}
+          h={{ onSelectDate: setDate, onOpenSettings: noop, onOpenSleep: noop, onOpenHeart: noop, onOpenFood: noop, onOpenTrain: noop, onOpenRing: noop, onOpenJournal: noop }}
         />
       )
     case 'food':
@@ -57,7 +60,7 @@ export default function Preview() {
       return (
         <SleepView
           m={{ isMe: true, eyebrow: 'Sleep', nights: demoNights, selected: screen === 'sleep-short' ? { ...demoNights[demoNights.length - 1], asleep_min: 272, in_bed_min: 272, awake_min: 0, deep_min: 49, rem_min: 48, core_min: 175 } : demoNights.find(n => n.night === night), sourcesForNight: ['R09_1A2B', 'Connect'], targetMin: 480,
-            need: { needMin: 530, baselineMin: 480, strainMin: 24, debtMin: 26, weekShortfallMin: 86 }, consistency: 71 }}
+            need: { needMin: 506, baselineMin: 480, strainMin: 24, debtMin: 26, napMin: 24, weekShortfallMin: 86 }, consistency: 71 }}
           h={{ onBack: noop, onSelectNight: setNight, onPreferSource: noop }}
         />
       )
@@ -74,6 +77,24 @@ export default function Preview() {
     case 'run-workout':
     case 'run-guided':
       return <PreviewRecord phase={screen === 'run-ready' || screen === 'run-workout' ? 'ready' : screen === 'run-summary' ? 'summary' : 'running'} guided={screen === 'run-workout' || screen === 'run-guided'} />
+    case 'journal':
+      return <PreviewJournal />
+    case 'nap':
+      return (
+        <NapView
+          m={{
+            durations: [15, 20, 30, 45, 60, 90], duration: 30,
+            endedOptions: [{ label: 'Just now', minutesAgo: 0 }, { label: '30 min ago', minutesAgo: 30 }, { label: '1 h ago', minutesAgo: 60 }, { label: '2 h ago', minutesAgo: 120 }],
+            endedMinutesAgo: 0, preview: '14:10 – 14:40',
+            recent: [
+              { id: '1', source: 'ring', title: '13:55 – 14:30 · 35m', sub: 'Sep 27 · spotted by the ring' },
+              { id: '2', source: 'manual', title: '15:00 – 15:20 · 20m', sub: 'Sep 25 · logged' },
+            ],
+            saving: false,
+          }}
+          h={{ onClose: noop, onDuration: noop, onEnded: noop, onSave: noop, onRemove: noop }}
+        />
+      )
     case 'template':
       return (
         <TemplateView
@@ -234,6 +255,49 @@ function PreviewGoal() {
         onQuick: sec => setDraft(d => ({ ...d, h: '', m: String(Math.floor(sec / 60)), s: String(sec % 60).padStart(2, '0') })),
         onWeeks: weeks => setDraft(d => ({ ...d, weeks })), onSave: noop, onRemove: noop,
       }}
+    />
+  )
+}
+
+function PreviewJournal() {
+  const [answers, setAnswers] = useState<Answers>({ alcohol: true, late_caffeine: false, stress: true })
+  return (
+    <JournalView
+      m={{
+        dateLabel: 'Yesterday', canNext: true, manual: MANUAL_BEHAVIORS, answers, note: '',
+        auto: [
+          { key: 'late_meal', label: 'Ate within 2 h of bed', icon: 'restaurant-outline', value: true, detail: 'last meal 21:40, 1.3 h before bed' },
+          { key: 'late_training', label: 'Trained within 3 h of bed', icon: 'barbell-outline', value: false, detail: 'finished 18:05' },
+          { key: 'high_strain', label: 'Strain above 14', icon: 'flash-outline', value: false, detail: 'strain 11.4' },
+        ],
+        effects: [
+          {
+            key: 'alcohol', label: 'Alcohol', yesN: 5, noN: 16, verdict: 'hurts',
+            summary: 'HRV 21% lower, resting HR 4.2 bpm higher, 9 points less deep + REM',
+            outcomes: [
+              { metric: 'hrv', label: 'HRV', yes: 44, no: 56, diff: -12, diffText: '', better: false, notable: true },
+              { metric: 'rhr', label: 'Resting HR', yes: 57, no: 53, diff: 4.2, diffText: '', better: false, notable: true },
+              { metric: 'sleep', label: 'Sleep', yes: 412, no: 425, diff: -13, diffText: '', better: false, notable: false },
+              { metric: 'restorative', label: 'Deep + REM', yes: 31, no: 40, diff: -9, diffText: '', better: false, notable: true },
+            ],
+          },
+          {
+            key: 'late_meal', label: 'Ate within 2 h of bed', yesN: 7, noN: 14, verdict: 'hurts',
+            summary: 'HRV 9% lower',
+            outcomes: [
+              { metric: 'hrv', label: 'HRV', yes: 51, no: 56, diff: -5, diffText: '', better: false, notable: true },
+              { metric: 'sleep', label: 'Sleep', yes: 420, no: 424, diff: -4, diffText: '', better: false, notable: false },
+            ],
+          },
+          {
+            key: 'meditation', label: 'Meditation or breathwork', yesN: 4, noN: 17, verdict: 'neutral', summary: null,
+            outcomes: [{ metric: 'hrv', label: 'HRV', yes: 55, no: 54, diff: 1, diffText: '', better: true, notable: false }],
+          },
+        ],
+        waiting: [{ label: 'Sauna or hot bath', days: 2 }, { label: 'Travelled', days: 3 }],
+        answeredDays: 21, saving: false, saved: false,
+      }}
+      h={{ onBack: noop, onDay: noop, onToggle: k => setAnswers(a => ({ ...a, [k]: !a[k] })), onNote: noop, onSave: noop }}
     />
   )
 }

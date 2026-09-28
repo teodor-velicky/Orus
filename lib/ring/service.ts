@@ -16,6 +16,8 @@ import { frameNote } from './custom'
 import { enmo, MinuteAggregator, MinuteRow, rollupDay, rmssd } from './aggregate'
 import { fromBase64, toBase64 } from './packet'
 import { getRing, hydrateRing, patchRing, pushTrail, logPacket } from './live'
+import { detectNaps } from '../naps'
+import { saveDetectedNaps } from '../journalStore'
 import { broadcastVitals } from './share'
 import { isExpoGo } from '../env'
 import type { RingDecoder, RingEvent } from './types'
@@ -472,6 +474,13 @@ async function rollup(userId: string, deviceName: string, date: string): Promise
         .map(st => ({ start: window.start + st.s * 60_000, end: window.start + (st.s + st.d) * 60_000 }))
     : []
   const day = rollupDay(date, relevant, window, deep)
+
+  // Naps: a daytime stretch at sleeping heart rate with no steps, judged
+  // against the resting rate from the night before this day.
+  if (day.resting_hr) {
+    saveDetectedNaps(userId, detectNaps(relevant, day.resting_hr, dayStart), dayStart)
+      .catch(e => console.warn('nap detection', e))
+  }
   const { sleep_minutes_with_hr: _unused, ...values } = day
   const { error } = await supabase.from('ring_daily').upsert(
     { ...values, user_id: userId, source: deviceName, updated_at: new Date().toISOString() },

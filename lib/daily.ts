@@ -7,6 +7,8 @@ import { gymLoad } from './run/load'
 import { runDate, ZoneSettings } from './run/training'
 import { dayStrain, DayStrain, StrainEvent } from './strain'
 import { sleepConsistency, sleepNeed, SleepNeed } from './sleep'
+import { napCreditMin } from './naps'
+import { napOf, NapRow, napsRange } from './journalStore'
 import type { GymSession, GymSet, Profile, Run, SleepSession } from './types'
 import type { EnergyMinute } from './energy'
 
@@ -60,13 +62,27 @@ export async function sleepContext(o: {
   runs: Run[]
   zs: ZoneSettings
   sex: Profile['sex']
-}): Promise<{ need: SleepNeed; consistency: number | null; strainBefore: DayStrain }> {
+}): Promise<{ need: SleepNeed; consistency: number | null; strainBefore: DayStrain; naps: NapRow[] }> {
   const dayBefore = localIso(addDays(fromIso(o.night), -1))
-  const minutes = await ringMinutesForDay(o.userId, dayBefore)
+  const [minutes, allNaps] = await Promise.all([
+    ringMinutesForDay(o.userId, dayBefore),
+    napsRange(o.userId, 14).catch(() => [] as NapRow[]),
+  ])
   const strainBefore = strainFor({ date: dayBefore, minutes, sessions: o.sessions, runs: o.runs, zs: o.zs, sex: o.sex })
+
+  // Naps count toward this night if they fell between the previous wake-up
+  // and this night's sleep (or now, when planning tonight).
+  const wokeAt = o.nights.find(n => n.night === dayBefore)?.end_at
+  const sleptAt = o.nights.find(n => n.night === o.night)?.start_at
+  const after = wokeAt ? new Date(wokeAt).getTime() : fromIso(dayBefore).getTime() + 5 * 3600_000
+  const before = sleptAt ? new Date(sleptAt).getTime() : Math.min(Date.now(), fromIso(o.night).getTime() + 4 * 3600_000)
+  const naps = allNaps.filter(n => { const x = napOf(n); return x.start >= after && x.end <= before })
+  const napMin = napCreditMin(naps.map(napOf), after, before)
+
   return {
-    need: sleepNeed({ baselineMin: o.baselineMin, night: o.night, previous: o.nights, strain: strainBefore.strain }),
+    need: sleepNeed({ baselineMin: o.baselineMin, night: o.night, previous: o.nights, strain: strainBefore.strain, napMin }),
     consistency: sleepConsistency(o.nights, o.night),
     strainBefore,
+    naps,
   }
 }

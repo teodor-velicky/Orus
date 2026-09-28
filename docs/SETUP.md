@@ -253,7 +253,7 @@ This is built from public protocol research (Gadgetbridge, colmi_r02_client, mk5
 | Live HR / SpO₂ / HRV / **skin temp** | `0x69` kinds 1/3/10/**11**; temp °C = raw/10 + 20 | Documented, temperature observed on an R09 |
 | Auto-logging on connect | HR every 5 min, all-day SpO₂ and HRV | Documented |
 | Raw motion | `A1 04 04` on, `A1 02` off; `A1 03` packed 12-bit Y/Z/X at 512 LSB/g | **Verify on R09.** The format comes from R02-family firmware; a ring lying still should read about 1 g |
-| Skin-temperature **history** | — | **Not documented.** Only live spot readings for now, so nightly temperature depends on the ring being connected. To find the record type, log unknown big-data frames (see the TODO in `decodeBigData`) |
+| Skin-temperature history | big-data `0x25`, 30-min slots (see below) | Documented, needs all-day temperature on |
 
 **History sync:** requests run one at a time, because a response doesn't say which day it's for. The order is activity → HR → SpO₂ → sleep → HRV, going back up to 7 days. A step that goes silent for 10 seconds is skipped, since older firmware ignores some requests.
 
@@ -312,7 +312,7 @@ All three are pure TypeScript in `lib/` with tests in `lib/__tests__/health.test
 
 WHOOP publishes the shape of its models, though not the constants. Orus adopts the parts its data supports (`lib/sleep.ts`, `lib/strain.ts`, tests in `lib/__tests__/whoop.test.ts`):
 
-* **Sleep need = baseline + strain + debt.** Strain above 8 adds 6 minutes per point (up to an hour at 18); 30 % of the last 7 nights' shortfall comes back tonight, capped at 90 minutes. Sleep is scored against need, not a fixed target. Naps aren't detected yet.
+* **Sleep need = baseline + strain + debt.** Strain above 8 adds 6 minutes per point (up to an hour at 18); 30 % of the last 7 nights' shortfall comes back tonight, capped at 90 minutes; naps since you last woke up come off it (up to 90 minutes, never below two thirds of baseline). Sleep is scored against need, not a fixed target.
 * **Sleep consistency.** Mean bed and wake time drift across 4 nights, 0-100: about 8 points per 30 minutes of drift, 17 per hour.
 * **Sleep score** like WHOOP's Sleep Performance: hours vs need 55 %, deep + REM share 20 %, consistency 15 %, efficiency 10 %.
 * **HRV from deep sleep.** Nightly HRV uses readings that overlap the ring's deep-sleep periods when there are at least two, the steadiest part of the night; otherwise the whole night.
@@ -320,6 +320,12 @@ WHOOP publishes the shape of its models, though not the constants. Orus adopts t
 * **Strain target** from readiness, on WHOOP's bands: 67+ push 14-18, 34-66 maintain 10-14, under 34 restore 0-10.
 
 Not adopted: respiratory rate (the ring doesn't report it) and the stress monitor (needs daytime HRV the ring only samples every 30 minutes).
+
+### Naps and the journal
+
+**Naps** (`lib/naps.ts`, table `naps`). Log one from + → Log a nap, or let the ring find it: between 10:00 and 20:00, at least 20 minutes of heart rate within 4 bpm of your resting rate in quarter-hours with no steps, gaps up to 10 minutes allowed. Detection runs after each ring sync once the day has a resting HR. A ring nap you remove is marked dismissed, so the next sync won't add it back. Today shows "Tonight, aim for ..." with the nap taken off.
+
+**Journal** (`lib/journal.ts`, table `journal_entries`, one row per day). Eight yes/no questions (alcohol, caffeine after 14:00, stress, screens in bed, ill, travel, sauna, meditation) plus three the app works out itself: a meal within 2 hours of bed, training within 3 hours of bed, and strain above 14. After at least 3 days with a habit and 3 without, the journal compares the following night: HRV (notable at 8 %), resting HR (2 bpm), sleep (20 minutes) and deep + REM share (3 points). Today asks "How was yesterday?" until yesterday has an entry. It's a comparison of averages, not proof of cause.
 
 ### Steps
 

@@ -21,7 +21,13 @@ export interface TodayModel {
   isMe: boolean
   week: { date: string; score: number | null }[]
   readiness: Readiness
-  sleep: { night?: SleepSession; score: number | null; targetMin: number; need?: SleepNeed | null; consistency?: number | null }
+  sleep: {
+    night?: SleepSession; score: number | null; targetMin: number; need?: SleepNeed | null; consistency?: number | null
+    /** Need for tonight so far: today's strain and naps included. */
+    tonight?: SleepNeed | null
+  }
+  /** Show the check-in prompt when yesterday has no journal entry. */
+  journalDue: boolean
   /** Day strain 0-21 and today's target band from readiness. */
   strain: { value: number; activeMin: number; target: StrainTarget | null }
   nutrition: { summary: NutritionSummary; targets: { kcal: number; protein: number; carbs: number; fat: number; fiber: number }; runBonus?: number }
@@ -56,6 +62,7 @@ export interface TodayHandlers {
   onOpenFood: () => void
   onOpenTrain: () => void
   onOpenRing: () => void
+  onOpenJournal: () => void
 }
 
 function insight(r: Readiness): { headline: string; body: string } {
@@ -152,6 +159,19 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
         ) : null}
       </Card>
 
+      {m.journalDue && m.isMe ? (
+        <Card inset onPress={h.onOpenJournal} style={{ marginTop: space.m }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.m }}>
+            <Ionicons name="book-outline" size={18} color={color.text} />
+            <View style={{ flex: 1 }}>
+              <Text style={type.bodyStrong}>How was yesterday?</Text>
+              <Text style={type.caption}>A 20-second check-in shows which habits move your recovery.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={15} color={color.textTertiary} />
+          </View>
+        </Card>
+      ) : null}
+
       {/* VITALS */}
       <Label>Vitals</Label>
       <View style={{ flexDirection: 'row', gap: space.m }}>
@@ -211,6 +231,7 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
               Needed {hm(m.sleep.need.needMin)}: {hm(m.sleep.need.baselineMin)} baseline
               {m.sleep.need.strainMin ? ` + ${m.sleep.need.strainMin}m strain` : ''}
               {m.sleep.need.debtMin ? ` + ${m.sleep.need.debtMin}m debt` : ''}
+              {m.sleep.need.napMin ? ` − ${m.sleep.need.napMin}m nap` : ''}
               {m.sleep.consistency != null ? ` · consistency ${m.sleep.consistency}%` : ''}
             </Text>
           ) : null}
@@ -224,6 +245,26 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
           </View>
         ) : null}
       </Card>
+
+      {m.sleep.tonight ? (
+        <Card inset style={{ marginTop: space.s }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.m }}>
+            <Ionicons name="moon-outline" size={16} color={color.textSecondary} />
+            <Text style={[type.sub, { flex: 1, color: color.text }]}>
+              Tonight, aim for {hm(m.sleep.tonight.needMin)}
+              <Text style={{ color: color.textSecondary }}>
+                {m.sleep.tonight.strainMin || m.sleep.tonight.debtMin || m.sleep.tonight.napMin
+                  ? ` (${[
+                    m.sleep.tonight.strainMin ? `+${m.sleep.tonight.strainMin}m strain` : '',
+                    m.sleep.tonight.debtMin ? `+${m.sleep.tonight.debtMin}m debt` : '',
+                    m.sleep.tonight.napMin ? `−${m.sleep.tonight.napMin}m nap` : '',
+                  ].filter(Boolean).join(', ')})`
+                  : ''}
+              </Text>
+            </Text>
+          </View>
+        </Card>
+      ) : null}
 
       {/* NUTRITION */}
       <Label>Nutrition</Label>

@@ -75,13 +75,15 @@ function Gate() {
       <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
       <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-      <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.44], sheetGrabberVisible: true, contentStyle: { backgroundColor: color.surface } }} />
+      <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.62], sheetGrabberVisible: true, contentStyle: { backgroundColor: color.surface } }} />
       <Stack.Screen name="log-meal" options={{ presentation: 'modal' }} />
       <Stack.Screen name="symptoms" options={{ presentation: 'modal' }} />
       <Stack.Screen name="exercises" options={{ presentation: 'modal' }} />
       <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
       <Stack.Screen name="run/record" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       <Stack.Screen name="run-goal" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="journal" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="nap" options={{ presentation: 'modal' }} />
     </Stack>
   )
 }
