@@ -44,7 +44,14 @@ export interface TodayModel {
   syncedText?: string
   ring?: { name: string; connected: boolean; battery?: number; liveHr?: number }
   /** Live heart rate when the ring is streaming, and last night's resting rate. */
-  heart: { live: number | null; resting: number | null }
+  heart: {
+    live: number | null
+    resting: number | null
+    /** Last beat seen, for the seconds before the stream picks up again. */
+    recent?: { value: number; minutesAgo: number } | null
+    /** Recent beats, drawn under a live rate. */
+    trail?: number[]
+  }
   /** Skin temperature: deviation once there's a baseline, otherwise last night or live. */
   skin: { delta: number | null; nightly: number | null; live: number | null; nightsToBaseline: number }
   energy: (EnergyDay & { eaten: number }) | null
@@ -81,6 +88,17 @@ function insight(r: Readiness): { headline: string; body: string } {
 /** Three columns with a fixed centre, so gauges and the numbers under them line up. */
 const SIDE = { flex: 1, alignItems: 'center' } as const
 const MIDDLE = { width: 150, alignItems: 'center' } as const
+
+/** Under the heart rate: how live the number is, and last night's resting rate. */
+function heartDelta(heart: TodayModel['heart']): string {
+  const resting = heart.resting != null ? ` · resting ${Math.round(heart.resting)}` : ''
+  if (heart.live != null) return `live${resting}`
+  if (heart.recent) {
+    const { minutesAgo: ago } = heart.recent
+    return `${ago < 2 ? 'a moment ago' : ago < 60 ? `${ago} min ago` : ago < 120 ? 'an hour ago' : `${Math.round(ago / 60)} h ago`}${resting}`
+  }
+  return heart.resting != null ? 'last night' : 'wear the ring overnight'
+}
 
 export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
   const r = m.readiness
@@ -141,11 +159,11 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
           <Card inset style={{ marginTop: space.l }}>
             {r.parts.map((p, i) => (
               <View key={p.key} style={{ marginBottom: i === r.parts.length - 1 ? 0 : space.m }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <Text style={[type.caption, { color: color.text, fontFamily: font.medium }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.m, marginBottom: 6 }}>
+                  <Text style={[type.caption, { color: color.text, fontFamily: font.medium, flexShrink: 0 }]}>
                     {p.label}{p.provisional ? <Text style={{ color: color.textTertiary, fontFamily: font.regular }}> · calibrating</Text> : null}
                   </Text>
-                  <Text style={type.unit}>{p.detail}</Text>
+                  <Text style={[type.unit, { flex: 1, textAlign: 'right' }]} numberOfLines={2}>{p.detail}</Text>
                 </View>
                 <Progress pct={p.score} height={4} />
               </View>
@@ -175,10 +193,13 @@ export function TodayView({ m, h }: { m: TodayModel; h: TodayHandlers }) {
       {/* VITALS */}
       <Label>Vitals</Label>
       <View style={{ flexDirection: 'row', gap: space.m }}>
-        <Tile icon={m.heart.live != null ? 'heart' : 'heart-outline'} label={m.heart.live != null ? 'Heart rate' : 'Resting HR'}
-          value={num(m.heart.live ?? m.heart.resting)} unit="bpm" onPress={h.onOpenHeart}
-          delta={m.heart.live != null ? (m.heart.resting != null ? `live · resting ${Math.round(m.heart.resting)}` : 'live') : m.heart.resting != null ? 'last night' : 'wear the ring overnight'}
-          footer={<Sparkline values={trend14.map(x => x.resting_hr)} />} />
+        <Tile icon={m.heart.live != null || m.heart.recent ? 'heart' : 'heart-outline'}
+          label={m.heart.live != null ? 'Heart rate' : m.heart.recent ? 'Heart rate' : 'Resting HR'}
+          value={num(m.heart.live ?? m.heart.recent?.value ?? m.heart.resting)} unit="bpm" onPress={h.onOpenHeart}
+          delta={heartDelta(m.heart)}
+          footer={m.heart.live != null && (m.heart.trail?.length ?? 0) > 1
+            ? <Sparkline values={m.heart.trail!.slice(-40)} />
+            : <Sparkline values={trend14.map(x => x.resting_hr)} />} />
         <Tile icon="pulse-outline" label="HRV" value={num(m.metrics?.hrv_ms)} unit="ms" onPress={h.onOpenHeart}
           footer={<Sparkline values={trend14.map(x => (x.hrv_kind === m.metrics?.hrv_kind ? x.hrv_ms : null))} />} />
       </View>

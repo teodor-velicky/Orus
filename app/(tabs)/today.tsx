@@ -223,7 +223,16 @@ export default function Today() {
       battery: ring.battery?.pct,
       liveHr: liveHr ?? undefined,
     } : undefined,
-    heart: { live: isToday ? liveHr : null, resting: dayRow?.resting_hr ?? null },
+    heart: {
+      live: isToday ? liveHr : null,
+      resting: dayRow?.resting_hr ?? null,
+      // Opening the app, the ring takes a few seconds to send the first beat.
+      // Show the last one with its age meanwhile, rather than a blank tile.
+      recent: isToday && isMe && !liveHr && isFresh(ring.hr, 12 * 3600_000)
+        ? { value: Math.round(ring.hr!.value), minutesAgo: Math.round((Date.now() - ring.hr!.at) / 60_000) }
+        : null,
+      trail: isToday && isMe && liveHr != null ? ring.hrTrail : [],
+    },
     skin: {
       delta: dayRow?.skin_temp_delta_c ?? null,
       nightly: dayRow?.skin_temp_c ?? null,
